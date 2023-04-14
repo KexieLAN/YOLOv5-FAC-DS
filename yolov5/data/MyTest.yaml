@@ -1,0 +1,9 @@
+#datasets path which include training datasets and val datasets
+train: G:/FAC/images/train
+val: G:/FAC/images/val
+
+#number of classes
+nc: 3
+
+#class names
+names: [ 'person','dir_face','no_dir_face' ]
