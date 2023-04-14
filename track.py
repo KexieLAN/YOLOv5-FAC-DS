@@ -349,12 +349,12 @@ def parse_opt():
     parser.add_argument('--reid-weights', type=Path, default=WEIGHTS / 'osnet_x0_25_msmt17.pt')
     # 追踪模式
     # strongsort：最新最强SORT算法
-    # ocsort：以观察为中心的排序
-    # bytetrack：尚可的SORT算法
+    # ocsort：以观察为中心的排序，将物体移动的动量引入关联阶段，并开发出一种噪声更小、对遮挡和非线性运动更鲁棒的管道
+    # bytetrack：简单、高效且通用的数据关联方法BYTE，通过关联每个检测框而不仅仅是高分检测框来进行跟踪
     parser.add_argument('--tracking-method', type=str, default='strongsort', help='strongsort, ocsort, bytetrack')
-    # 数据源
+    # 数据源，默认网络摄像头
     parser.add_argument('--source', type=str, default='0', help='file/dir/URL/glob, 0 for webcam')
-    # 图像大小，默认640*
+    # 图像大小，默认640**
     parser.add_argument('--imgsz', '--img', '--img-size', nargs='+', type=int, default=[640], help='inference size h,w')
     # 置信度阈值，提高置信度可以减少低置信度的框
     parser.add_argument('--conf-thres', type=float, default=0.5, help='confidence threshold')
@@ -379,16 +379,31 @@ def parse_opt():
     # class 0 is person, 1 is bycicle, 2 is car... 79 is oven
     # 检测类别，可以指定一个或部分类别进行检测
     parser.add_argument('--classes', nargs='+', type=int, help='filter by class: --classes 0, or --classes 0 2 3')
+    # 跨类别检测
+    # agnostic-nms是跨类别nms，比如待检测图像中有一个长得很像排球的足球，pt文件的分类中有足球和排球两种，
+    # 那在识别时这个足球可能会被同时框上2个框：一个是足球，一个是排球。
+    # 开启agnostic-nms后，那只会框出一个框
     parser.add_argument('--agnostic-nms', action='store_true', help='class-agnostic NMS')
+    # 增强方式,可能为马赛克数据增强
     parser.add_argument('--augment', action='store_true', help='augmented inference')
+    # 特征图可视化，生成两个文件，图片与numpy
     parser.add_argument('--visualize', action='store_true', help='visualize features')
+    # 去除优化器
     parser.add_argument('--update', action='store_true', help='update all models')
+    # 检测结果保存路径
     parser.add_argument('--project', default=ROOT / 'runs/track', help='save results to project/name')
+    # 检测结果保存名称
     parser.add_argument('--name', default='exp', help='save results to project/name')
+    # 这个参数的意思就是每次预测模型的结果是否保存在原来的文件夹，
+    # 如果指定了这个参数的话，那么本次预测的结果还是保存在上一次保存的文件夹里；如果不指定就是每次预测结果保存一个新的文件夹下。
     parser.add_argument('--exist-ok', action='store_true', help='existing project/name ok, do not increment')
+    # 调节box的粗细，可用来防遮挡
     parser.add_argument('--line-thickness', default=2, type=int, help='bounding box thickness (pixels)')
+    # 隐藏标签
     parser.add_argument('--hide-labels', default=False, action='store_true', help='hide labels')
+    # 隐藏置信度
     parser.add_argument('--hide-conf', default=False, action='store_true', help='hide confidences')
+    # 隐藏分类
     parser.add_argument('--hide-class', default=False, action='store_true', help='hide IDs')
     # 半精度
     parser.add_argument('--half', action='store_true', help='use FP16 half-precision inference')

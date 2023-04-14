@@ -2,6 +2,8 @@
 <project version="4">
   <component name="ProjectModuleManager">
     <modules>
+      <module fileurl="file://$PROJECT_DIR$/yolov5/.idea/yolov5.iml" filepath="$PROJECT_DIR$/yolov5/.idea/yolov5.iml" />
+      <module fileurl="file://$PROJECT_DIR$/../yolov5-master/.idea/yolov5-master.iml" filepath="$PROJECT_DIR$/../yolov5-master/.idea/yolov5-master.iml" />
       <module fileurl="file://$PROJECT_DIR$/.idea/yolov57_tracking-8.0.iml" filepath="$PROJECT_DIR$/.idea/yolov57_tracking-8.0.iml" />
     </modules>
   </component>

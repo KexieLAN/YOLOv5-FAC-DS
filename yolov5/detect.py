@@ -302,6 +302,8 @@ def parse_opt():
     parser.add_argument('--half', action='store_true', help='use FP16 half-precision inference')
     # 是否使用OpenCV DNN进行ONNX推理
     parser.add_argument('--dnn', action='store_true', help='use OpenCV DNN for ONNX inference')
+    # 设置视频文件的步进？
+    # 以一定的帧间隔读取视频？
     parser.add_argument('--vid-stride', type=int, default=1, help='video frame-rate stride')
     opt = parser.parse_args()
     opt.imgsz *= 2 if len(opt.imgsz) == 1 else 1  # expand
