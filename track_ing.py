@@ -15,6 +15,12 @@ from pathlib import Path
 import torch
 import torch.backends.cudnn as cudnn
 
+# ----------------------------------------------------------------------------------
+# 添加时间计算相关的包
+from time import strftime, gmtime
+
+# ----------------------------------------------------------------------------------
+
 FILE = Path(__file__).resolve()
 ROOT = FILE.parents[0]  # yolov5 strongsort root directory
 WEIGHTS = ROOT / 'weights'
@@ -103,7 +109,20 @@ def run(
 
     # Dataloader
     # 载入数据：网页捕获和常规文件
-    if webcam:
+    # ----------------------------------------------------------------------------------
+    # temp_cap:暂时读取视频，获取信息，读取后需要释放掉
+    temp_cap = cv2.VideoCapture(source)
+    v_width = int(temp_cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+    # 获取视频的帧率
+    v_fps = temp_cap.get(cv2.CAP_PROP_FPS)
+    if v_fps == 0:
+        v_fps = 30
+    # 获取视频的总帧数(已弃用)
+    # v_frames = temp_cap.get(cv2.CAP_PROP_FRAME_COUNT)
+    # 释放视频
+    temp_cap.release()
+    # ----------------------------------------------------------------------------------
+    if webcam:  # 如果设备是网络摄像机
         show_vid = check_imshow()
         dataset = LoadStreams(source, img_size=imgsz, stride=stride, auto=pt, vid_stride=vid_stride)
         nr_sources = len(dataset)
@@ -131,7 +150,13 @@ def run(
     # dt：存储信息用的[准备时间，识别时间，净化时间，追迹时间],seen算是一种索引？计数？
     dt, seen = [0.0, 0.0, 0.0, 0.0], 0
     curr_frames, prev_frames = [None] * nr_sources, [None] * nr_sources
-    # 对数据集进行枚举操作
+
+    # ----------------------------------------------------------------------------------
+    # 字典，通过id作为索引，记录下每一个id的出现帧数
+    FaceingTimeCount = {}
+    # ----------------------------------------------------------------------------------
+
+    # 对数据集进行枚举操作，检测每一帧/图片
     # enumerate()函数返回 索引 与 对应位数据
     for frame_idx, (path, im, im0s, vid_cap, s) in enumerate(dataset):
         # GPU流转等待？
@@ -164,17 +189,14 @@ def run(
         # 记录清理候选框的时间
         dt[2] += time_sync() - t3
 
-        # ----------------------------------------------------------------------------------
-        # 对ID进行计数与计时？
-        # FaceingTimeCount = []
-        # ----------------------------------------------------------------------------------
-
         # Process detections
         # 处理检测到的目标
         # 枚举并检测目标
         for i, det in enumerate(pred):  # detections per image
             # 初始的，用于在帧上显示的“Count：”和后期附加检测总数的变量Count
             Count = "Counts: "
+            # 展示在Label上的时间可能不便于观察，故在视频右上角展示计时
+            Timing = "Timing: "
             seen += 1
             # 如果输入源为网页捕获？
             if webcam:  # nr_sources >= 1
@@ -262,18 +284,35 @@ def run(
                             c = int(cls)  # integer class   类别
                             id = int(id)  # integer id  ID
                             # -------------------------------------------------------------------------
-                            # 大概可以在此处插入计时代码，在将计时结果输出到标签上
+                            # 大概可以在此处插入->计时代码，在将计时结果输出到标签上
                             # 计时方式：记录目标ID出现的帧的数量，用获得的帧的数量比上视频帧的数量，
                             #         用这个比值乘上视频时间长度，可以大体估算出时间
+                            # 检测类别是否为我们需要的
+                            if names[c] == 'person':
+                                # 将新id写入字典
+                                if str(id) not in FaceingTimeCount.keys():
+                                    FaceingTimeCount[str(id)] = 0
+                                FaceingTimeCount[str(id)] += 1
 
-                            # if c == 1 or names[c] == 'dir_face':
-                            #     FaceingTimeCount[id] += 1
+                                # time_id = (FaceingTimeCount[str(id)] / v_frames) * (v_frames / v_fps)
+                                time_id = (FaceingTimeCount[str(id)] / v_fps)
 
+                                time_id = strftime("%H:%M:%S", gmtime(time_id))
+
+                                label = None if hide_labels else (f'{id} {names[c]} {time_id}' if hide_conf else \
+                                                                      (
+                                                                          f'{id} {conf:.2f} {time_id}' if hide_class else
+                                                                          f'{id} {names[c]} {conf:.2f} {time_id}'))
+                                annotator.box_label(bboxes, label, color=colors(c, True))
+                                Timing += '\n' + f"{id} {time_id}"
                             # -------------------------------------------------------------------------
-                            label = None if hide_labels else (f'{id} {names[c]}' if hide_conf else \
-                                                                  (
-                                                                      f'{id} {conf:.2f}' if hide_class else f'{id} {names[c]} {conf:.2f}'))
-                            annotator.box_label(bboxes, label, color=colors(c, True))
+                            # 不必要的就不输出时间
+                            else:
+                                label = None if hide_labels else (f'{id} {names[c]}' if hide_conf else \
+                                                                      (
+                                                                          f'{id} {conf:.2f} ' if hide_class else
+                                                                          f'{id} {names[c]} {conf:.2f}'))
+                                annotator.box_label(bboxes, label, color=colors(c, True))
                             # cv2.putText(im0, f"{n} {names[int(c)]}{'s' * (n > 1)}", (5, 50), cv2.FONT_HERSHEY_SIMPLEX, 1.2,
                             #             (0, 0, 255), 2)
                             # #
@@ -306,7 +345,11 @@ def run(
                 for dus, txt in enumerate(Count.split('\n')):
                     y = y0 + dus * dy
                     cv2.putText(im0, txt, (50, y), cv2.FONT_HERSHEY_SIMPLEX, 1.2, (0, 0, 255), 3, 2)
-
+                # -------------------------------------------------------------------------------------------
+                for dus, txt in enumerate(Timing.split('\n')):
+                    y = y0 + dus * dy
+                    cv2.putText(im0, txt, (v_width-300, y), cv2.FONT_HERSHEY_SIMPLEX, 1.2, (0, 0, 255), 3, 2)
+                # -------------------------------------------------------------------------------------------
                 cv2.imshow(str(p), im0)
                 cv2.waitKey(1)  # 1 millisecond
 
@@ -321,6 +364,11 @@ def run(
                     for dus, txt in enumerate(Count.split('\n')):
                         y = y0 + dus * dy
                         cv2.putText(im0, txt, (50, y), cv2.FONT_HERSHEY_SIMPLEX, 1.2, (0, 0, 255), 3, 2)
+                    # --------------------------------------------------------------------------------------
+                    for dus, txt in enumerate(Timing.split('\n')):
+                        y = y0 + dus * dy
+                        cv2.putText(im0, txt, (v_width - 300, y), cv2.FONT_HERSHEY_SIMPLEX, 1.2, (0, 0, 255), 3, 2)
+                    # --------------------------------------------------------------------------------------
                 # 创建新的视频文件
                 if vid_path[i] != save_path:  # new video
                     vid_path[i] = save_path
