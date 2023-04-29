@@ -27,6 +27,18 @@ class StrongSORT(object):
                  mc_lambda=0.995,
                  ema_alpha=0.9
                 ):
+        '''
+            由multi_tracker_zoo.py传递
+              model_weights:权重文件，
+              device:设备选择
+              half:是否使用半精度浮点（GTX 16系列对半精度浮点存在兼容性问题）
+            由trackers/strong_sort/configs/strong_sort.yaml提供
+              max_dist:最大匹配距离，超过最大匹配距离则认为无关联
+              max_iou_distance:最大IoU阈值，超过此将会认为无关联
+              max_age:最大寿命，当目标消失时开始计时，超过此帧数将会不在追踪，即便是相同的目标，也将会重新分配ID
+              n_init:用于初始化的帧数
+              nn_budget:外貌描述库的最大数量
+        '''
 
         self.model = ReIDDetectMultiBackend(weights=model_weights, device=device, fp16=fp16)
         

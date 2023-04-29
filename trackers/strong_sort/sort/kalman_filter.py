@@ -1,6 +1,7 @@
 # vim: expandtab:ts=4:sw=4
 import numpy as np
 import scipy.linalg
+
 """
 Table for the 0.95 quantile of the chi-square distribution with N degrees of
 freedom (contains values for N=1, ..., 9). Taken from MATLAB/Octave's chi2inv
@@ -18,6 +19,18 @@ chi2inv95 = {
     9: 16.919}
 
 
+# A为状态转移矩阵 _motion_mat
+# P为协方差矩阵 covariance
+# K为卡尔曼增益
+# H为观测矩阵 _update_mat
+
+# 在视觉的目标跟踪一般是状态变量X采用（x, y, a, h, vx, vy, va, vh）观测变量Z采用(x, y, a, h)
+#
+# 状态变量X分别代表检测框的中心点：x，y 检测框的长宽比率a，以及检测框的高h，剩下的4个表示变换速率
+# 观测变量Z分别代表检测框的中心点：x，y 检测框的长宽比率a，以及检测框的高h
+# （在不太的跟踪器下 可能后面的a，h 选择使用S面积，以及高度h）
+# （注意：只要状态变量能够完整描述整个系统即可）
+
 class KalmanFilter(object):
     """
     A simple Kalman filter for tracking bounding boxes in image space.
@@ -34,16 +47,21 @@ class KalmanFilter(object):
         ndim, dt = 4, 1.
 
         # Create Kalman filter model matrices.
+        # 创建卡尔曼滤波模型矩阵
+        # 运动转移矩阵
         self._motion_mat = np.eye(2 * ndim, 2 * ndim)
         for i in range(ndim):
             self._motion_mat[i, ndim + i] = dt
-
+        # 运动观测矩阵 Z=HX
         self._update_mat = np.eye(ndim, 2 * ndim)
 
         # Motion and observation uncertainty are chosen relative to the current
         # state estimate. These weights control the amount of uncertainty in
         # the model. This is a bit hacky.
+        # Q、R调整参数
+        # 位置权重
         self._std_weight_position = 1. / 20
+        # 向量/方向权重
         self._std_weight_velocity = 1. / 160
 
     def initiate(self, measurement):
@@ -51,6 +69,7 @@ class KalmanFilter(object):
         Parameters
         ----------
         measurement : ndarray
+            (中心x坐标，中心y坐标，横纵比，高度)
             Bounding box coordinates (x, y, a, h) with center position (x, y),
             aspect ratio a, and height h.
         Returns
@@ -65,10 +84,10 @@ class KalmanFilter(object):
         mean = np.r_[mean_pos, mean_vel]
 
         std = [
-            2 * self._std_weight_position * measurement[0],   # the center point x
-            2 * self._std_weight_position * measurement[1],   # the center point y
-            1 * measurement[2],                               # the ratio of width/height
-            2 * self._std_weight_position * measurement[3],   # the height
+            2 * self._std_weight_position * measurement[0],  # the center point x
+            2 * self._std_weight_position * measurement[1],  # the center point y
+            1 * measurement[2],  # the ratio of width/height
+            2 * self._std_weight_position * measurement[3],  # the height
             10 * self._std_weight_velocity * measurement[0],
             10 * self._std_weight_velocity * measurement[1],
             0.1 * measurement[2],
@@ -107,7 +126,7 @@ class KalmanFilter(object):
         mean = np.dot(self._motion_mat, mean)
         covariance = np.linalg.multi_dot((
             self._motion_mat, covariance, self._motion_mat.T)) + motion_cov
-
+        # 返回x，p，x随意，p不为0即可，
         return mean, covariance
 
     def project(self, mean, covariance, confidence=.0):
@@ -115,8 +134,10 @@ class KalmanFilter(object):
         Parameters
         ----------
         mean : ndarray
+            平均向量的状态
             The state's mean vector (8 dimensional array).
         covariance : ndarray
+            协方差矩阵的状态
             The state's covariance matrix (8x8 dimensional).
         confidence: (dyh) 检测框置信度
         Returns
@@ -124,6 +145,7 @@ class KalmanFilter(object):
         (ndarray, ndarray)
             Returns the projected mean and covariance matrix of the given state
             estimate.
+            返回给定状态的投影平均值和协方差矩阵估计值
         """
         std = [
             self._std_weight_position * mean[3],
@@ -131,14 +153,16 @@ class KalmanFilter(object):
             1e-1,
             self._std_weight_position * mean[3]]
 
-
         std = [(1 - confidence) * x for x in std]
-
+        # innovation_cov为R 测量噪声协方差
         innovation_cov = np.diag(np.square(std))
-
+        # mean = HX
         mean = np.dot(self._update_mat, mean)
+        # K计算的分母
+        # H * P * H.T
         covariance = np.linalg.multi_dot((
             self._update_mat, covariance, self._update_mat.T))
+        # HX , (H * P * H.T)+R
         return mean, covariance + innovation_cov
 
     def update(self, mean, covariance, measurement, confidence=.0):

@@ -11,7 +11,9 @@ class TrackState:
     the track state is changed to `confirmed`. Tracks that are no longer alive
     are classified as `deleted` to mark them for removal from the set of active
     tracks.
-
+    单一目标轨道状态的枚举类型。新创建的轨道被归类为 归类为 "潜在"，直到收集到足够的证据。
+    然后、 轨迹状态被改为 "确认"。不再存在的轨迹 的轨道被归类为 "删除"，
+    以便将其从活动轨道集中删除。轨迹。
     """
 
     Tentative = 1
@@ -29,6 +31,7 @@ class Track:
     ----------
     mean : ndarray
         Mean vector of the initial state distribution.
+        初始状态分布的平均向量
     covariance : ndarray
         Covariance matrix of the initial state distribution.
     track_id : int

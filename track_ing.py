@@ -111,12 +111,16 @@ def run(
     # 载入数据：网页捕获和常规文件
     # ----------------------------------------------------------------------------------
     # temp_cap:暂时读取视频，获取信息，读取后需要释放掉
-    temp_cap = cv2.VideoCapture(source)
+    if webcam:
+        temp_cap = cv2.VideoCapture(0)
+    else:
+        temp_cap = cv2.VideoCapture(source)
     v_width = int(temp_cap.get(cv2.CAP_PROP_FRAME_WIDTH))
     # 获取视频的帧率
-    v_fps = temp_cap.get(cv2.CAP_PROP_FPS)
+    # 尝试将帧率与vid_stride关联起来
+    v_fps = int(temp_cap.get(cv2.CAP_PROP_FPS) / vid_stride)
     if v_fps == 0:
-        v_fps = 30
+        v_fps = 30 / vid_stride
     # 获取视频的总帧数(已弃用)
     # v_frames = temp_cap.get(cv2.CAP_PROP_FRAME_COUNT)
     # 释放视频
@@ -127,19 +131,22 @@ def run(
         dataset = LoadStreams(source, img_size=imgsz, stride=stride, auto=pt, vid_stride=vid_stride)
         nr_sources = len(dataset)
     else:
-        dataset = LoadImages(source, img_size=imgsz, stride=stride, auto=pt)
+        # 测试，增加vid_stride
+        dataset = LoadImages(source, img_size=imgsz, stride=stride, auto=pt, vid_stride=vid_stride)
         nr_sources = 1
     vid_path, vid_writer, txt_path = [None] * nr_sources, [None] * nr_sources, [None] * nr_sources
 
     # Create as many strong sort instances as there are video sources
-    # 创建和视频源数量一致的strongsort实例
+    # 创建和视频源数量一致的追踪器实例
     tracker_list = []
     for i in range(nr_sources):
         # 根据模式，创建相应的追踪器的实例
+        # 详见trackers/multi_tracker_zoo.py
         tracker = create_tracker(tracking_method, reid_weights, device, half)
         # 追踪器加入表中
         tracker_list.append(tracker, )
         if hasattr(tracker_list[i], 'model'):
+            # 对未执行预热的模型的模型进行预热
             if hasattr(tracker_list[i].model, 'warmup'):
                 tracker_list[i].model.warmup()
     outputs = [None] * nr_sources
@@ -196,9 +203,12 @@ def run(
             # 初始的，用于在帧上显示的“Count：”和后期附加检测总数的变量Count
             Count = "Counts: "
             # 展示在Label上的时间可能不便于观察，故在视频右上角展示计时
-            Timing = "Timing: "
+            if vid_stride!=1:
+                Timing = f"Timing({vid_stride}x): "
+            else:
+                Timing = "Timing: "
             seen += 1
-            # 如果输入源为网页捕获？
+            # 如果输入源为网络摄像头
             if webcam:  # nr_sources >= 1
                 p, im0, _ = path[i], im0s[i].copy(), dataset.count
                 p = Path(p)  # to Path
@@ -231,6 +241,7 @@ def run(
             annotator = Annotator(im0, line_width=line_thickness, example=str(names))
 
             # hasattr()函数用于判断对象是否包含对应的属性
+            # 用于检测完成后的追迹
             if hasattr(tracker_list[i], 'tracker') and hasattr(tracker_list[i].tracker, 'camera_update'):
                 if (prev_frames[i] is not None) and (curr_frames[i] is not None):  # camera motion compensation
                     tracker_list[i].tracker.camera_update(prev_frames[i], curr_frames[i])
@@ -251,7 +262,8 @@ def run(
                 # pass detections to strongsort
                 # 将检测的目标传送给StrongSort，进行追迹
                 # t4存储GPU启动时序
-                t4 = time_sync()  # strongsort的更新函数，见trackers/strong_sort/strong_sort.py
+                t4 = time_sync()
+                # strongsort的更新函数，见trackers/strong_sort/strong_sort.py
                 outputs[i] = tracker_list[i].update(det.cpu(), im0)
                 # t5存储GPU结束时序
                 t5 = time_sync()
@@ -348,7 +360,7 @@ def run(
                 # -------------------------------------------------------------------------------------------
                 for dus, txt in enumerate(Timing.split('\n')):
                     y = y0 + dus * dy
-                    cv2.putText(im0, txt, (v_width-300, y), cv2.FONT_HERSHEY_SIMPLEX, 1.2, (0, 0, 255), 3, 2)
+                    cv2.putText(im0, txt, (v_width - 300, y), cv2.FONT_HERSHEY_SIMPLEX, 1.2, (0, 0, 255), 3, 2)
                 # -------------------------------------------------------------------------------------------
                 cv2.imshow(str(p), im0)
                 cv2.waitKey(1)  # 1 millisecond
@@ -466,8 +478,8 @@ def parse_opt():
     parser.add_argument('--half', action='store_true', help='use FP16 half-precision inference')
     # 使用OpenCV的DNN，用以实现ONNX模型的推理
     parser.add_argument('--dnn', action='store_true', help='use OpenCV DNN for ONNX inference')
-    # 设置视频文件的步进？
-    # 以一定的帧间隔读取视频？
+    # 设置视频文件的步进
+    # 以一定的帧间隔读取视频
     parser.add_argument('--vid-stride', type=int, default=1, help='video frame-rate stride')
     opt = parser.parse_args()
     opt.imgsz *= 2 if len(opt.imgsz) == 1 else 1  # expand
