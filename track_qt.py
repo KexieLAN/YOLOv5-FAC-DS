@@ -104,7 +104,7 @@ class trackThread(QThread):
             iou_thres=0.25,  # NMS IOU threshold
             max_det=1000,  # maximum detections per image
             device='',  # cuda device, i.e. 0 or 0,1,2,3 or cpu
-            show_vid=True,  # show results
+            show_vid=False,  # show results
             save_txt=False,  # save results to *.txt
             save_conf=False,  # save confidences in --save-txt labels
             save_crop=False,  # save cropped prediction boxes
@@ -425,18 +425,17 @@ class trackThread(QThread):
                 # 保存视频，用来存储图像和识别的结果
                 if save_vid:
                     # 之前未展示计数，则生成视频时附加上
-                    if not show_vid:
-                        # cv2.putText(im0, f"{n} {names[int(c)]}{'s' * (n > 1)}", (5, 50), cv2.FONT_HERSHEY_SIMPLEX, 1.2,
-                        #             (0, 0, 255), 2)
-                        y0, dy = 30, 40
-                        for dus, txt in enumerate(Count.split('\n')):
-                            y = y0 + dus * dy
-                            cv2.putText(im0, txt, (50, y), cv2.FONT_HERSHEY_SIMPLEX, 1.2, (0, 0, 255), 3, 2)
+                    # cv2.putText(im0, f"{n} {names[int(c)]}{'s' * (n > 1)}", (5, 50), cv2.FONT_HERSHEY_SIMPLEX, 1.2,
+                    #             (0, 0, 255), 2)
+                    y0, dy = 30, 40
+                    for dus, txt in enumerate(Count.split('\n')):
+                        y = y0 + dus * dy
+                        cv2.putText(im0, txt, (50, y), cv2.FONT_HERSHEY_SIMPLEX, 1.2, (0, 0, 255), 3, 2)
                         # --------------------------------------------------------------------------------------
-                        for dus, txt in enumerate(Timing.split('\n')):
-                            y = y0 + dus * dy
-                            cv2.putText(im0, txt, (v_width - 300, y), cv2.FONT_HERSHEY_SIMPLEX, 1.2, (0, 0, 255), 3, 2)
-                        # --------------------------------------------------------------------------------------
+                    for dus, txt in enumerate(Timing.split('\n')):
+                        y = y0 + dus * dy
+                        cv2.putText(im0, txt, (v_width - 300, y), cv2.FONT_HERSHEY_SIMPLEX, 1.2, (0, 0, 255), 3, 2)
+                    # --------------------------------------------------------------------------------------
                     # 创建新的视频文件
                     if vid_path[i] != save_path:  # new video
                         vid_path[i] = save_path
@@ -475,9 +474,11 @@ class trackUi(QWidget):
     stopBtn = None
     startBtn = None
     modelSelect = None
+    isSave = False
 
     def __init__(self):
         super().__init__()
+        self.saveVid = None
         self.textBox = None
         self.dir_faceCountLabel = None
         self.personCountLabel = None
@@ -511,6 +512,9 @@ class trackUi(QWidget):
 
         self.textBox = self.ui.textBrowser
 
+        self.saveVid = self.ui.saveVid
+        self.saveVid.stateChanged.connect(self.checkBox)
+
     def getVidPath(self):
         filename = QFileDialog.getOpenFileName(self.ui,
                                                '获取视频源',
@@ -542,7 +546,7 @@ class trackUi(QWidget):
                 opts = json.dumps({
                     "weights": self.modelPath,
                     "source": self.filepath,
-                    "save-vid": True
+                    "save-vid": self.isSave
                 })
                 self.trackingThread.setOpt(opts)
                 self.trackingThread.daemon = True
@@ -589,6 +593,12 @@ class trackUi(QWidget):
     def showLog(self, msg):
         self.textBox.append(msg + "<br>")
         self.textBox.repaint()
+
+    def checkBox(self):
+        if self.saveVid.isChecked():
+            self.isSave = True
+        else:
+            self.isSave = False
 
 
 if __name__ == '__main__':

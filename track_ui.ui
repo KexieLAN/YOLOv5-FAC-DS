@@ -62,7 +62,7 @@
     <string>中止检测</string>
    </property>
   </widget>
-  <widget class="QCheckBox" name="checkBox">
+  <widget class="QCheckBox" name="saveVid">
    <property name="geometry">
     <rect>
      <x>70</x>
