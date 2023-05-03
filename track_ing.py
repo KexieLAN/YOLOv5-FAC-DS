@@ -55,8 +55,8 @@ def run(
         reid_weights=WEIGHTS / 'osnet_x0_25_msmt17.pt',  # model.pt path,
         tracking_method='strongsort',
         imgsz=(640, 640),  # inference size (height, width)
-        conf_thres=0.25,  # confidence threshold
-        iou_thres=0.45,  # NMS IOU threshold
+        conf_thres=0.45,  # confidence threshold
+        iou_thres=0.25,  # NMS IOU threshold
         max_det=1000,  # maximum detections per image
         device='',  # cuda device, i.e. 0 or 0,1,2,3 or cpu
         show_vid=False,  # show results
@@ -300,7 +300,7 @@ def run(
                             # 计时方式：记录目标ID出现的帧的数量，用获得的帧的数量比上视频帧的数量，
                             #         用这个比值乘上视频时间长度，可以大体估算出时间
                             # 检测类别是否为我们需要的
-                            if names[c] == 'person':
+                            if names[c] == 'dir_face':
                                 # 将新id写入字典
                                 if str(id) not in FaceingTimeCount.keys():
                                     FaceingTimeCount[str(id)] = 0
