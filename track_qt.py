@@ -6,9 +6,9 @@ import pathlib
 import sys, time
 
 import numpy
-from PyQt5.QtGui import QPixmap, QImage, QIcon
+from PyQt5.QtGui import QPixmap, QImage, QIcon, QStandardItemModel, QStandardItem
 from PyQt5.QtWidgets import QApplication, QPushButton, QLabel, QCheckBox, QTextBrowser, QTextEdit, QFileDialog, QWidget, \
-    QGraphicsPixmapItem, QGraphicsScene, QMessageBox
+    QGraphicsPixmapItem, QGraphicsScene, QMessageBox, QHeaderView, QAbstractItemView, QTableView
 from PyQt5 import uic
 from PyQt5.QtCore import QThread, pyqtSignal
 from PyQt5.Qt import QThread
@@ -68,6 +68,7 @@ class trackThread(QThread):
     isOver = pyqtSignal(str)
     msgs = pyqtSignal(str)
     logs = pyqtSignal(str)
+    timing = pyqtSignal(dict)
 
     def __init__(self):
         super().__init__()
@@ -206,6 +207,7 @@ class trackThread(QThread):
         # ----------------------------------------------------------------------------------
         # 字典，通过id作为索引，记录下每一个id的出现帧数
         FaceingTimeCount = {}
+        FaceingTiming = {}
         # ----------------------------------------------------------------------------------
 
         # 对数据集进行枚举操作，检测每一帧/图片
@@ -357,6 +359,7 @@ class trackThread(QThread):
                                     # 将新id写入字典
                                     if str(id) not in FaceingTimeCount.keys():
                                         FaceingTimeCount[str(id)] = 0
+                                        FaceingTiming[str(id)] = ''
                                     FaceingTimeCount[str(id)] += 1
 
                                     # time_id = (FaceingTimeCount[str(id)] / v_frames) * (v_frames / v_fps)
@@ -370,6 +373,7 @@ class trackThread(QThread):
                                                                               f'{id} {names[c]} {conf:.2f} {time_id}'))
                                     annotator.box_label(bboxes, label, color=colors(c, True))
                                     Timing += '\n' + f"{id} {time_id}"
+                                    FaceingTiming[str(id)] = time_id
                                 # -------------------------------------------------------------------------
                                 # 不必要的就不输出时间
                                 else:
@@ -398,7 +402,7 @@ class trackThread(QThread):
                     # strongsort_list[i].increment_ages()
                     LOGGER.info('No detections')
                     self.logs.emit('No detections')
-
+                self.timing.emit(FaceingTiming)
                 # Stream results
                 # 流式媒体的结果
                 im0 = annotator.result()
@@ -478,6 +482,8 @@ class trackUi(QWidget):
 
     def __init__(self):
         super().__init__()
+        self.tableModel = None
+        self.tableShow = None
         self.saveVid = None
         self.textBox = None
         self.dir_faceCountLabel = None
@@ -516,6 +522,9 @@ class trackUi(QWidget):
         self.saveVid = self.ui.saveVid
         self.saveVid.stateChanged.connect(self.checkBox)
 
+        self.tableShow = self.ui.tableView
+        self.initTableShow()
+
     def getVidPath(self):
         filename = QFileDialog.getOpenFileName(self.ui,
                                                '获取视频源',
@@ -538,11 +547,13 @@ class trackUi(QWidget):
     def startYoloThread(self):
         if self.trackingThread is None:
             if self.modelPath != '' and self.modelPath is not None:
+                self.tableClearn()
                 self.trackingThread = trackThread()  # 创建线程
                 self.trackingThread.preImg.connect(self.showVid)
                 self.trackingThread.counts.connect(self.showCount)
                 self.trackingThread.isOver.connect(self.resetThreadSta)
                 self.trackingThread.logs.connect(self.showLog)
+                self.trackingThread.timing.connect(self.tableRe)
                 opts = json.dumps({
                     "weights": self.modelPath,
                     "source": self.filepath,
@@ -599,6 +610,34 @@ class trackUi(QWidget):
             self.isSave = True
         else:
             self.isSave = False
+
+    def initTableShow(self):
+        # 创建一个 0行3列 的标准模型
+        self.tableModel = QStandardItemModel(0, 2)
+        # 设置表头标签
+        self.tableModel.setHorizontalHeaderLabels(['ID', '时间'])
+        self.tableShow.setModel(self.tableModel)
+        self.tableShow.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)  # 所有列自动拉伸，充满界面
+
+        self.tableShow.setSelectionMode(QAbstractItemView.SingleSelection)  # 设置只能选中整行
+        self.tableShow.setEditTriggers(QTableView.NoEditTriggers)  # 不可编辑
+        self.tableShow.setSelectionBehavior(QAbstractItemView.SelectRows)  # 设置只能选中一行
+
+        # self.tableView.setSelectionBehavior(QAbstractItemView.SelectRows)  # 设置只能选中整行
+        # self.tableView.setSelectionMode(QAbstractItemView.ExtendedSelection)  # 设置只能选中多行
+
+    def tableClearn(self):
+        # 会全部清空，包括那个标准表头
+        self.tableModel.clear()
+        # 所以重新设置标准表头 自己将一下代码注释 尝试
+        self.tableModel.setHorizontalHeaderLabels(['ID', '时间'])
+
+    def tableRe(self, dic):
+        self.tableClearn()
+        for item in dic.items():
+            C1 = QStandardItem('%s' % str(item[0]))
+            C2 = QStandardItem('%s' % str(item[1]))
+            self.tableModel.appendRow([C1, C2])
 
 
 if __name__ == '__main__':

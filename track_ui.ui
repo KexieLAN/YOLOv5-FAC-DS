@@ -122,7 +122,7 @@
    <property name="geometry">
     <rect>
      <x>70</x>
-     <y>280</y>
+     <y>330</y>
      <width>72</width>
      <height>15</height>
     </rect>
@@ -135,7 +135,7 @@
    <property name="geometry">
     <rect>
      <x>70</x>
-     <y>330</y>
+     <y>380</y>
      <width>91</width>
      <height>16</height>
     </rect>
@@ -148,7 +148,7 @@
    <property name="geometry">
     <rect>
      <x>70</x>
-     <y>380</y>
+     <y>430</y>
      <width>91</width>
      <height>16</height>
     </rect>
@@ -161,7 +161,7 @@
    <property name="geometry">
     <rect>
      <x>70</x>
-     <y>310</y>
+     <y>360</y>
      <width>72</width>
      <height>15</height>
     </rect>
@@ -174,7 +174,7 @@
    <property name="geometry">
     <rect>
      <x>70</x>
-     <y>360</y>
+     <y>410</y>
      <width>72</width>
      <height>15</height>
     </rect>
@@ -183,14 +183,27 @@
     <string>正脸数量</string>
    </property>
   </widget>
-  <widget class="QListView" name="listView">
+  <widget class="QTableView" name="tableView">
    <property name="geometry">
     <rect>
-     <x>910</x>
+     <x>920</x>
      <y>30</y>
      <width>221</width>
      <height>641</height>
     </rect>
+   </property>
+  </widget>
+  <widget class="QCheckBox" name="zoneCheckBox">
+   <property name="geometry">
+    <rect>
+     <x>70</x>
+     <y>260</y>
+     <width>91</width>
+     <height>19</height>
+    </rect>
+   </property>
+   <property name="text">
+    <string>区域检测</string>
    </property>
   </widget>
  </widget>
