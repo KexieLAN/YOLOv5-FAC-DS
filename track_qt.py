@@ -6,11 +6,11 @@ import pathlib
 import sys, time
 
 import numpy
-from PyQt5.QtGui import QPixmap, QImage, QIcon, QStandardItemModel, QStandardItem
+from PyQt5.QtGui import QPixmap, QImage, QIcon, QStandardItemModel, QStandardItem, QFont
 from PyQt5.QtWidgets import QApplication, QPushButton, QLabel, QCheckBox, QTextBrowser, QTextEdit, QFileDialog, QWidget, \
-    QGraphicsPixmapItem, QGraphicsScene, QMessageBox, QHeaderView, QAbstractItemView, QTableView
+    QGraphicsPixmapItem, QGraphicsScene, QMessageBox, QHeaderView, QAbstractItemView, QTableView, QMainWindow, QDialog
 from PyQt5 import uic
-from PyQt5.QtCore import QThread, pyqtSignal
+from PyQt5.QtCore import QThread, pyqtSignal, QCoreApplication, QMetaObject, QRect
 from PyQt5.Qt import QThread
 
 import platform
@@ -90,6 +90,8 @@ class trackThread(QThread):
         #     time.sleep(1)
         print(self.opt['weights'])
         print(self.opt['source'])
+        print(self.opt['save-vid'])
+        print(self.opt['zone'])
         self.tracking(yolo_weights=pathlib.Path(self.opt['weights']), source=self.opt['source'],
                       save_vid=self.opt['save-vid'])
 
@@ -104,7 +106,7 @@ class trackThread(QThread):
             conf_thres=0.45,  # confidence threshold
             iou_thres=0.25,  # NMS IOU threshold
             max_det=1000,  # maximum detections per image
-            device='',  # cuda device, i.e. 0 or 0,1,2,3 or cpu
+            device='0',  # cuda device, i.e. 0 or 0,1,2,3 or cpu
             show_vid=True,  # show results
             save_txt=False,  # save results to *.txt
             save_conf=False,  # save confidences in --save-txt labels
@@ -213,7 +215,7 @@ class trackThread(QThread):
         # 对数据集进行枚举操作，检测每一帧/图片
         # enumerate()函数返回 索引 与 对应位数据
         for frame_idx, (path, im, im0s, vid_cap, s) in enumerate(dataset):
-            if not self.sta:
+            if not self.sta and frame_idx != 0:
                 break
             # GPU流转等待？
             t1 = time_sync()
@@ -467,9 +469,10 @@ class trackThread(QThread):
             LOGGER.info(f"Results saved to {colorstr('bold', save_dir)}{s}")
         if update:
             strip_optimizer(yolo_weights)  # update model (to fix SourceChangeWarning)
+        # vid_cap.release()
 
 
-class trackUi(QWidget):
+class trackUi(QMainWindow):
     ui = None
     fileChos, filePathShow = None, None
     filepath = '0'
@@ -482,6 +485,13 @@ class trackUi(QWidget):
 
     def __init__(self):
         super().__init__()
+        # 区域选择
+        # self.we = None
+        # self.we = zoneUi()
+        self.zone = None
+        self.zoneInfo = None
+        # 区域选择复选框
+        self.zoneChos = None
         self.tableModel = None
         self.tableShow = None
         self.saveVid = None
@@ -520,7 +530,10 @@ class trackUi(QWidget):
         self.textBox = self.ui.textBrowser
 
         self.saveVid = self.ui.saveVid
-        self.saveVid.stateChanged.connect(self.checkBox)
+        self.saveVid.stateChanged.connect(self.saveVidCheckBox)
+
+        self.zoneChos = self.ui.zoneCheckBox
+        self.zoneChos.stateChanged.connect(self.zoneCheckBox)
 
         self.tableShow = self.ui.tableView
         self.initTableShow()
@@ -532,9 +545,10 @@ class trackUi(QWidget):
                                                "Video \
                                                (*.asf *.avi *.gif *.m4v *.mkv *.mov *.mp4 *.mpeg *.mpg *.ts *.wmv')")
         self.filePathShow.setText(filename[0])
-        if filename[0] == '':
+        if filename[0] == '' or len(filename[0]) == 0:
             self.filepath = '0'
-        self.filepath = filename[0]
+        else:
+            self.filepath = filename[0]
 
     def getModPath(self):
         modelPath = QFileDialog.getOpenFileName(self.ui,
@@ -557,7 +571,8 @@ class trackUi(QWidget):
                 opts = json.dumps({
                     "weights": self.modelPath,
                     "source": self.filepath,
-                    "save-vid": self.isSave
+                    "save-vid": self.isSave,
+                    "zone": self.zone
                 })
                 self.trackingThread.setOpt(opts)
                 self.trackingThread.daemon = True
@@ -605,17 +620,23 @@ class trackUi(QWidget):
         self.textBox.append(msg + "<br>")
         self.textBox.repaint()
 
-    def checkBox(self):
+    def saveVidCheckBox(self):
         if self.saveVid.isChecked():
             self.isSave = True
         else:
             self.isSave = False
 
+    def zoneCheckBox(self):
+        if self.zoneChos.isChecked():
+            self.zone = True
+        else:
+            self.zone = False
+
     def initTableShow(self):
         # 创建一个 0行3列 的标准模型
         self.tableModel = QStandardItemModel(0, 2)
         # 设置表头标签
-        self.tableModel.setHorizontalHeaderLabels(['ID', '时间'])
+        self.tableModel.setHorizontalHeaderLabels(['正脸ID', '时间'])
         self.tableShow.setModel(self.tableModel)
         self.tableShow.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)  # 所有列自动拉伸，充满界面
 
@@ -630,7 +651,7 @@ class trackUi(QWidget):
         # 会全部清空，包括那个标准表头
         self.tableModel.clear()
         # 所以重新设置标准表头 自己将一下代码注释 尝试
-        self.tableModel.setHorizontalHeaderLabels(['ID', '时间'])
+        self.tableModel.setHorizontalHeaderLabels(['正脸ID', '时间'])
 
     def tableRe(self, dic):
         self.tableClearn()
@@ -646,4 +667,4 @@ if __name__ == '__main__':
     w = trackUi()
     w.ui.show()
 
-    app.exec()
+    sys.exit(app.exec_())
