@@ -8,7 +8,8 @@ import sys, time
 import numpy
 from PyQt5.QtGui import QPixmap, QImage, QIcon, QStandardItemModel, QStandardItem, QFont
 from PyQt5.QtWidgets import QApplication, QPushButton, QLabel, QCheckBox, QTextBrowser, QTextEdit, QFileDialog, QWidget, \
-    QGraphicsPixmapItem, QGraphicsScene, QMessageBox, QHeaderView, QAbstractItemView, QTableView, QMainWindow, QDialog
+    QGraphicsPixmapItem, QGraphicsScene, QMessageBox, QHeaderView, QAbstractItemView, QTableView, QMainWindow, QDialog, \
+    QGraphicsView
 from PyQt5 import uic
 from PyQt5.QtCore import QThread, pyqtSignal, QCoreApplication, QMetaObject, QRect
 from PyQt5.Qt import QThread
@@ -171,6 +172,8 @@ class trackThread(QThread):
             v_fps = 30 / vid_stride
         # 获取视频的总帧数(已弃用)
         # v_frames = temp_cap.get(cv2.CAP_PROP_FRAME_COUNT)
+        v_w = temp_cap.get(cv2.CAP_PROP_FRAME_WIDTH)
+        v_h = temp_cap.get(cv2.CAP_PROP_FRAME_HEIGHT)
         # 释放视频
         temp_cap.release()
         # ----------------------------------------------------------------------------------
@@ -217,6 +220,45 @@ class trackThread(QThread):
         for frame_idx, (path, im, im0s, vid_cap, s) in enumerate(dataset):
             if not self.sta and frame_idx != 0:
                 break
+            # ----------------------------------------------------------------------------------------------------------
+            h1 = 120 / v_h
+            w1 = 1080 / v_w
+
+            h2 = 120 / v_h
+            w2 = 1800 / v_w
+
+            h3 = 910 / v_h
+            w3 = 1800 / v_w
+
+            h4 = 910 / v_h
+            w4 = 1080 / v_w
+
+            if webcam:
+                for b in range(0, im.shape[0]):
+                    mask = numpy.zeros([im[b].shape[1], im[b].shape[2]], dtype=numpy.uint8)
+                    # mask[round(img[b].shape[1] * hl1):img[b].shape[1], round(img[b].shape[2] * wl1):img[b].shape[2]] = 255
+                    pts = numpy.array([[int(im[b].shape[2] * w1), int(im[b].shape[1] * w1)],  # pts1
+                                       [int(im[b].shape[2] * w2), int(im[b].shape[1] * h2)],  # pts2
+                                       [int(im[b].shape[2] * w3), int(im[b].shape[1] * h3)],  # pts3
+                                       [int(im[b].shape[2] * w4), int(im[b].shape[1] * h4)]], numpy.int32)
+                    mask = cv2.fillPoly(mask, [pts], (255, 255, 255))
+                    imgc = im[b].transpose((1, 2, 0))
+                    imgc = cv2.add(imgc, numpy.zeros(numpy.shape(imgc), dtype=numpy.uint8), mask=mask)
+                    # cv2.imshow('1',imgc)
+                    im[b] = imgc.transpose((2, 0, 1))
+
+            else:
+                mask = numpy.zeros([im.shape[1], im.shape[2]], dtype=numpy.uint8)
+                # mask[round(img.shape[1] * hl1):img.shape[1], round(img.shape[2] * wl1):img.shape[2]] = 255
+                pts = numpy.array([[int(im.shape[2] * w1), int(im.shape[1] * h1)],  # pts1
+                                   [int(im.shape[2] * w2), int(im.shape[1] * h2)],  # pts2
+                                   [int(im.shape[2] * w3), int(im.shape[1] * h3)],  # pts3
+                                   [int(im.shape[2] * w4), int(im.shape[1] * h4)]], numpy.int32)
+                mask = cv2.fillPoly(mask, [pts], (255, 255, 255))
+                im = im.transpose((1, 2, 0))
+                im = cv2.add(im, numpy.zeros(numpy.shape(im), dtype=numpy.uint8), mask=mask)
+                im = im.transpose((2, 0, 1))
+            # ----------------------------------------------------------------------------------------------------------
             # GPU流转等待？
             t1 = time_sync()
             # 数据转入CDUA设备
@@ -273,6 +315,19 @@ class trackThread(QThread):
                     #     当给定默认参数时，当属性未给出时返回
                     #     存在;如果没有它，在这种情况下会引发异常。
                     p, im0, _ = path, im0s.copy(), getattr(dataset, 'frame', 0)
+                    cv2.putText(im0, "Detection_Region", (int(im0.shape[1] * w1 - 5), int(im0.shape[0] * h1 - 5)),
+                                cv2.FONT_HERSHEY_SIMPLEX,
+                                1.0, (255, 255, 0), 2, cv2.LINE_AA)
+                    pts = numpy.array([[int(im0.shape[1] * w1), int(im0.shape[0] * h1)],  # pts1
+                                       [int(im0.shape[1] * w2), int(im0.shape[0] * h2)],  # pts2
+                                       [int(im0.shape[1] * w3), int(im0.shape[0] * h3)],  # pts3
+                                       [int(im0.shape[1] * w4), int(im0.shape[0] * h4)]], numpy.int32)  # pts4
+                    # pts = pts.reshape((-1, 1, 2))
+                    zeros = numpy.zeros((im0.shape), dtype=numpy.uint8)
+                    mask = cv2.fillPoly(zeros, [pts], color=(0, 165, 255))
+                    im0 = cv2.addWeighted(im0, 1, mask, 0.2, 0)
+
+                    cv2.polylines(im0, [pts], True, (255, 255, 0), 3)
                     p = Path(p)  # to Path
                     # video file
                     # 识别是否为视频文件  （以视频格式后缀名）
@@ -486,8 +541,8 @@ class trackUi(QMainWindow):
     def __init__(self):
         super().__init__()
         # 区域选择
-        # self.we = None
-        # self.we = zoneUi()
+        self.we = None
+        # self.we = zoneChosUi()
         self.zone = None
         self.zoneInfo = None
         # 区域选择复选框
@@ -561,6 +616,8 @@ class trackUi(QMainWindow):
     def startYoloThread(self):
         if self.trackingThread is None:
             if self.modelPath != '' and self.modelPath is not None:
+                # if self.zone:
+                #     self.we.exec()
                 self.tableClearn()
                 self.trackingThread = trackThread()  # 创建线程
                 self.trackingThread.preImg.connect(self.showVid)
@@ -659,6 +716,16 @@ class trackUi(QMainWindow):
             C1 = QStandardItem('%s' % str(item[0]))
             C2 = QStandardItem('%s' % str(item[1]))
             self.tableModel.appendRow([C1, C2])
+
+
+# class zoneChosUi(QDialog):
+#     zui = None
+#
+#     def __init__(self):
+#         super().__init__()
+#         self.init_ui()
+#
+#     def init_ui(self):
 
 
 if __name__ == '__main__':
