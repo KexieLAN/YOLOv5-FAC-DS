@@ -224,9 +224,11 @@ class trackThread(QThread):
 
         # 对数据集进行枚举操作，检测每一帧/图片
         # enumerate()函数返回 索引 与 对应位数据
+        vc_temp = None
         for frame_idx, (path, im, im0s, vid_cap, s) in enumerate(dataset):
             if not self.sta and frame_idx != 0:
                 break
+            vc_temp = vid_cap
             # ----------------------------------------------------------------------------------------------------------
             if zone:
                 h1 = zonInfo[0][1] / v_h
@@ -538,7 +540,7 @@ class trackThread(QThread):
                     vid_writer[i].write(im0)
 
                 prev_frames[i] = curr_frames[i]
-
+        vc_temp.release()
         # Print results
         # 在命令行中，打印识别结果
         t = tuple(x / seen * 1E3 for x in dt)  # speeds per image
@@ -625,7 +627,7 @@ class trackUi(QMainWindow):
                                                (*.asf *.avi *.gif *.m4v *.mkv *.mov *.mp4 *.mpeg *.mpg *.ts *.wmv')")
         self.filePathShow.setText(filename[0])
         if filename[0] == '' or len(filename[0]) == 0:
-            self.filepath = '0'
+            self.filepath = 0
         else:
             self.filepath = filename[0]
 
@@ -790,11 +792,13 @@ class zoneChosShowDialog(QDialog):
     #     super().close()
 
     def resimac(self):
-        if not self.filePath:
+        if self.filePath is None:
             return
+        if self.filePath.isdigit():
+            self.filePath = int(self.filePath)
         cap = cv2.VideoCapture(self.filePath)
         if cap.isOpened():
-            print('vid get')
+            print('vid get' + str(self.filePath))
         ret, frame = cap.read()
         height, width, depth = frame.shape
         cvimg = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
