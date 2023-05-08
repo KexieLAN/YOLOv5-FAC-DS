@@ -66,7 +66,7 @@ class trackThread(QThread):
     sta = None
     preImg = pyqtSignal(numpy.ndarray)
     counts = pyqtSignal(list)
-    isOver = pyqtSignal(str)
+    isOver = pyqtSignal(bool)
     msgs = pyqtSignal(str)
     logs = pyqtSignal(str)
     timing = pyqtSignal(dict)
@@ -552,6 +552,8 @@ class trackThread(QThread):
         if update:
             strip_optimizer(yolo_weights)  # update model (to fix SourceChangeWarning)
         # vid_cap.release()
+        # 进程结束
+        self.isOver.emit(True)
 
 
 class trackUi(QMainWindow):
@@ -700,8 +702,9 @@ class trackUi(QMainWindow):
         self.personCountLabel.setText(str(cps[0].item()))
         self.dir_faceCountLabel.setText(str(cps[1].item()))
 
-    def resetThreadSta(self, ms):
-        self.trackingThread = None
+    def resetThreadSta(self, ts):
+        if ts:
+            self.trackingThread = None
 
     def showLog(self, msg):
         self.textBox.append(msg + "<br>")
