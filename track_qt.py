@@ -6,12 +6,12 @@ import pathlib
 import sys, time
 
 import numpy
-from PyQt5.QtGui import QPixmap, QImage, QIcon, QStandardItemModel, QStandardItem, QFont
+from PyQt5.QtGui import QPixmap, QImage, QIcon, QStandardItemModel, QStandardItem, QFont, QCloseEvent
 from PyQt5.QtWidgets import QApplication, QPushButton, QLabel, QCheckBox, QTextBrowser, QTextEdit, QFileDialog, QWidget, \
     QGraphicsPixmapItem, QGraphicsScene, QMessageBox, QHeaderView, QAbstractItemView, QTableView, QMainWindow, QDialog, \
-    QGraphicsView
+    QGraphicsView, QGridLayout
 from PyQt5 import uic
-from PyQt5.QtCore import QThread, pyqtSignal, QCoreApplication, QMetaObject, QRect
+from PyQt5.QtCore import QThread, pyqtSignal, QCoreApplication, QMetaObject, QRect, QRectF, QPoint, Qt, QEvent
 from PyQt5.Qt import QThread
 
 import platform
@@ -70,6 +70,9 @@ class trackThread(QThread):
     msgs = pyqtSignal(str)
     logs = pyqtSignal(str)
     timing = pyqtSignal(dict)
+    zoneInfo = None
+
+    # zoneInfo = None
 
     def __init__(self):
         super().__init__()
@@ -93,8 +96,10 @@ class trackThread(QThread):
         print(self.opt['source'])
         print(self.opt['save-vid'])
         print(self.opt['zone'])
+        if self.opt['zone']:
+            self.zoneInfo = self.opt['zoneInfo']
         self.tracking(yolo_weights=pathlib.Path(self.opt['weights']), source=self.opt['source'],
-                      save_vid=self.opt['save-vid'])
+                      save_vid=self.opt['save-vid'], zone=self.opt['zone'], zonInfo=self.zoneInfo)
 
     @torch.no_grad()
     def tracking(
@@ -129,6 +134,8 @@ class trackThread(QThread):
             half=False,  # use FP16 half-precision inference
             dnn=False,  # use OpenCV DNN for ONNX inference
             vid_stride=1,  # video frame-rate stride
+            zone=False,
+            zonInfo=None,
     ):
         source = str(source)
         save_img = not nosave and not source.endswith('.txt')  # save inference images
@@ -221,43 +228,44 @@ class trackThread(QThread):
             if not self.sta and frame_idx != 0:
                 break
             # ----------------------------------------------------------------------------------------------------------
-            h1 = 120 / v_h
-            w1 = 1080 / v_w
+            if zone:
+                h1 = zonInfo[0][1] / v_h
+                w1 = zonInfo[0][0] / v_w
 
-            h2 = 120 / v_h
-            w2 = 1800 / v_w
+                h2 = zonInfo[1][1] / v_h
+                w2 = zonInfo[1][0] / v_w
 
-            h3 = 910 / v_h
-            w3 = 1800 / v_w
+                h3 = zonInfo[2][1] / v_h
+                w3 = zonInfo[2][0] / v_w
 
-            h4 = 910 / v_h
-            w4 = 1080 / v_w
+                h4 = zonInfo[3][1] / v_h
+                w4 = zonInfo[3][0] / v_w
 
-            if webcam:
-                for b in range(0, im.shape[0]):
-                    mask = numpy.zeros([im[b].shape[1], im[b].shape[2]], dtype=numpy.uint8)
-                    # mask[round(img[b].shape[1] * hl1):img[b].shape[1], round(img[b].shape[2] * wl1):img[b].shape[2]] = 255
-                    pts = numpy.array([[int(im[b].shape[2] * w1), int(im[b].shape[1] * w1)],  # pts1
-                                       [int(im[b].shape[2] * w2), int(im[b].shape[1] * h2)],  # pts2
-                                       [int(im[b].shape[2] * w3), int(im[b].shape[1] * h3)],  # pts3
-                                       [int(im[b].shape[2] * w4), int(im[b].shape[1] * h4)]], numpy.int32)
+                if webcam:
+                    for b in range(0, im.shape[0]):
+                        mask = numpy.zeros([im[b].shape[1], im[b].shape[2]], dtype=numpy.uint8)
+                        # mask[round(img[b].shape[1] * hl1):img[b].shape[1], round(img[b].shape[2] * wl1):img[b].shape[2]] = 255
+                        pts = numpy.array([[int(im[b].shape[2] * w1), int(im[b].shape[1] * w1)],  # pts1
+                                           [int(im[b].shape[2] * w2), int(im[b].shape[1] * h2)],  # pts2
+                                           [int(im[b].shape[2] * w3), int(im[b].shape[1] * h3)],  # pts3
+                                           [int(im[b].shape[2] * w4), int(im[b].shape[1] * h4)]], numpy.int32)
+                        mask = cv2.fillPoly(mask, [pts], (255, 255, 255))
+                        imgc = im[b].transpose((1, 2, 0))
+                        imgc = cv2.add(imgc, numpy.zeros(numpy.shape(imgc), dtype=numpy.uint8), mask=mask)
+                        # cv2.imshow('1',imgc)
+                        im[b] = imgc.transpose((2, 0, 1))
+
+                else:
+                    mask = numpy.zeros([im.shape[1], im.shape[2]], dtype=numpy.uint8)
+                    # mask[round(img.shape[1] * hl1):img.shape[1], round(img.shape[2] * wl1):img.shape[2]] = 255
+                    pts = numpy.array([[int(im.shape[2] * w1), int(im.shape[1] * h1)],  # pts1
+                                       [int(im.shape[2] * w2), int(im.shape[1] * h2)],  # pts2
+                                       [int(im.shape[2] * w3), int(im.shape[1] * h3)],  # pts3
+                                       [int(im.shape[2] * w4), int(im.shape[1] * h4)]], numpy.int32)
                     mask = cv2.fillPoly(mask, [pts], (255, 255, 255))
-                    imgc = im[b].transpose((1, 2, 0))
-                    imgc = cv2.add(imgc, numpy.zeros(numpy.shape(imgc), dtype=numpy.uint8), mask=mask)
-                    # cv2.imshow('1',imgc)
-                    im[b] = imgc.transpose((2, 0, 1))
-
-            else:
-                mask = numpy.zeros([im.shape[1], im.shape[2]], dtype=numpy.uint8)
-                # mask[round(img.shape[1] * hl1):img.shape[1], round(img.shape[2] * wl1):img.shape[2]] = 255
-                pts = numpy.array([[int(im.shape[2] * w1), int(im.shape[1] * h1)],  # pts1
-                                   [int(im.shape[2] * w2), int(im.shape[1] * h2)],  # pts2
-                                   [int(im.shape[2] * w3), int(im.shape[1] * h3)],  # pts3
-                                   [int(im.shape[2] * w4), int(im.shape[1] * h4)]], numpy.int32)
-                mask = cv2.fillPoly(mask, [pts], (255, 255, 255))
-                im = im.transpose((1, 2, 0))
-                im = cv2.add(im, numpy.zeros(numpy.shape(im), dtype=numpy.uint8), mask=mask)
-                im = im.transpose((2, 0, 1))
+                    im = im.transpose((1, 2, 0))
+                    im = cv2.add(im, numpy.zeros(numpy.shape(im), dtype=numpy.uint8), mask=mask)
+                    im = im.transpose((2, 0, 1))
             # ----------------------------------------------------------------------------------------------------------
             # GPU流转等待？
             t1 = time_sync()
@@ -305,6 +313,22 @@ class trackThread(QThread):
                 # 如果输入源为网络摄像头
                 if webcam:  # nr_sources >= 1
                     p, im0, _ = path[i], im0s[i].copy(), dataset.count
+                    # ----------------------------------------------------------------------------------------------
+                    if zone:
+                        cv2.putText(im0, "Detection_Region", (int(im0.shape[1] * w1 - 5), int(im0.shape[0] * h1 - 5)),
+                                    cv2.FONT_HERSHEY_SIMPLEX,
+                                    1.0, (255, 255, 0), 2, cv2.LINE_AA)
+
+                        pts = np.array([[int(im0.shape[1] * w1), int(im0.shape[0] * h1)],  # pts1
+                                        [int(im0.shape[1] * w2), int(im0.shape[0] * h2)],  # pts2
+                                        [int(im0.shape[1] * w3), int(im0.shape[0] * h3)],  # pts3
+                                        [int(im0.shape[1] * w4), int(im0.shape[0] * h4)]], np.int32)  # pts4
+                        # pts = pts.reshape((-1, 1, 2))
+                        zeros = np.zeros((im0.shape), dtype=np.uint8)
+                        mask = cv2.fillPoly(zeros, [pts], color=(0, 165, 255))
+                        im0 = cv2.addWeighted(im0, 1, mask, 0.2, 0)
+                        cv2.polylines(im0, [pts], True, (255, 255, 0), 3)
+                    # ----------------------------------------------------------------------------------------------
                     p = Path(p)  # to Path
                     s += f'{i}: '
                     txt_file_name = p.name
@@ -315,19 +339,20 @@ class trackThread(QThread):
                     #     当给定默认参数时，当属性未给出时返回
                     #     存在;如果没有它，在这种情况下会引发异常。
                     p, im0, _ = path, im0s.copy(), getattr(dataset, 'frame', 0)
-                    cv2.putText(im0, "Detection_Region", (int(im0.shape[1] * w1 - 5), int(im0.shape[0] * h1 - 5)),
-                                cv2.FONT_HERSHEY_SIMPLEX,
-                                1.0, (255, 255, 0), 2, cv2.LINE_AA)
-                    pts = numpy.array([[int(im0.shape[1] * w1), int(im0.shape[0] * h1)],  # pts1
-                                       [int(im0.shape[1] * w2), int(im0.shape[0] * h2)],  # pts2
-                                       [int(im0.shape[1] * w3), int(im0.shape[0] * h3)],  # pts3
-                                       [int(im0.shape[1] * w4), int(im0.shape[0] * h4)]], numpy.int32)  # pts4
-                    # pts = pts.reshape((-1, 1, 2))
-                    zeros = numpy.zeros((im0.shape), dtype=numpy.uint8)
-                    mask = cv2.fillPoly(zeros, [pts], color=(0, 165, 255))
-                    im0 = cv2.addWeighted(im0, 1, mask, 0.2, 0)
+                    if zone:
+                        cv2.putText(im0, "Detection_Region", (int(im0.shape[1] * w1 - 5), int(im0.shape[0] * h1 - 5)),
+                                    cv2.FONT_HERSHEY_SIMPLEX,
+                                    1.0, (255, 255, 0), 2, cv2.LINE_AA)
+                        pts = numpy.array([[int(im0.shape[1] * w1), int(im0.shape[0] * h1)],  # pts1
+                                           [int(im0.shape[1] * w2), int(im0.shape[0] * h2)],  # pts2
+                                           [int(im0.shape[1] * w3), int(im0.shape[0] * h3)],  # pts3
+                                           [int(im0.shape[1] * w4), int(im0.shape[0] * h4)]], numpy.int32)  # pts4
+                        # pts = pts.reshape((-1, 1, 2))
+                        zeros = numpy.zeros((im0.shape), dtype=numpy.uint8)
+                        mask = cv2.fillPoly(zeros, [pts], color=(0, 165, 255))
+                        im0 = cv2.addWeighted(im0, 1, mask, 0.2, 0)
 
-                    cv2.polylines(im0, [pts], True, (255, 255, 0), 3)
+                        cv2.polylines(im0, [pts], True, (255, 255, 0), 3)
                     p = Path(p)  # to Path
                     # video file
                     # 识别是否为视频文件  （以视频格式后缀名）
@@ -542,7 +567,6 @@ class trackUi(QMainWindow):
         super().__init__()
         # 区域选择
         self.we = None
-        # self.we = zoneChosUi()
         self.zone = None
         self.zoneInfo = None
         # 区域选择复选框
@@ -616,8 +640,11 @@ class trackUi(QMainWindow):
     def startYoloThread(self):
         if self.trackingThread is None:
             if self.modelPath != '' and self.modelPath is not None:
-                # if self.zone:
-                #     self.we.exec()
+                if self.zone:
+                    self.we = zoneChosShowDialog(ffp=self.filepath)
+                    # self.we.getFilePath(self.filePath)
+                    self.we.posC.connect(self.getPos)
+                    self.we.exec()
                 self.tableClearn()
                 self.trackingThread = trackThread()  # 创建线程
                 self.trackingThread.preImg.connect(self.showVid)
@@ -629,7 +656,8 @@ class trackUi(QMainWindow):
                     "weights": self.modelPath,
                     "source": self.filepath,
                     "save-vid": self.isSave,
-                    "zone": self.zone
+                    "zone": self.zone,
+                    "zoneInfo": self.zoneInfo
                 })
                 self.trackingThread.setOpt(opts)
                 self.trackingThread.daemon = True
@@ -717,15 +745,129 @@ class trackUi(QMainWindow):
             C2 = QStandardItem('%s' % str(item[1]))
             self.tableModel.appendRow([C1, C2])
 
+    def getPos(self, ls):
+        self.zoneInfo = ls
 
-# class zoneChosUi(QDialog):
-#     zui = None
-#
-#     def __init__(self):
-#         super().__init__()
-#         self.init_ui()
-#
-#     def init_ui(self):
+
+class zoneChosShowDialog(QDialog):
+    posC = pyqtSignal(list)
+    filePath = None
+    posList = [(0, 0), (0, 0), (0, 0), (0, 0)]
+    posCount = 0
+
+    def __init__(self, ffp):
+        QWidget.__init__(self)
+        self.filePath = ffp
+        self.resize(1280, 720)
+        self.setWindowTitle('区域选的')
+        layout = QGridLayout(self)
+
+        # self.getImageButton = QPushButton('OK')
+        # layout.addWidget(self.getImageButton)
+        # self.getImageButton.clicked.connect(self.resimac)
+
+        self.resim1 = QLabel()
+        layout.addWidget(self.resim1)
+        self.resim1.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        # I'm assuming the following...
+        self.resim1.setScaledContents(True)
+        self.resim1.setFixedSize(1024, 768)
+
+        # install an event filter to "capture" mouse events (amongst others)
+        self.resim1.installEventFilter(self)
+        print(self.filePath)
+        self.resimac()
+
+    def closeEvent(self, a0: QCloseEvent) -> None:
+        """
+        重写QWidget类的closrEvent方法，在窗口被关闭的时候自动触发
+        """
+        super().closeEvent(a0)  # 先添加父类的方法，以免导致覆盖父类方法（这是重点！！！）
+        self.posC.emit(self.posList)
+
+    # def close(self):
+    #     self.posC.emit(self.posList)
+    #     super().close()
+
+    def resimac(self):
+        if not self.filePath:
+            return
+        cap = cv2.VideoCapture(self.filePath)
+        if cap.isOpened():
+            print('vid get')
+        ret, frame = cap.read()
+        height, width, depth = frame.shape
+        cvimg = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        cvimg = QImage(cvimg.data, width, height, width * depth, QImage.Format_RGB888)
+        self.resim1.setPixmap(QPixmap(cvimg))
+        cap.release()
+
+    def eventFilter(self, source, event):
+        # if the source is our QLabel, it has a valid pixmap, and the event is
+        # a left click, proceed in trying to get the event position
+        if (source == self.resim1 and source.pixmap() and not source.pixmap().isNull() and
+                event.type() == QEvent.MouseButtonPress and
+                event.button() == Qt.LeftButton):
+            self.getClickedPosition(event.pos())
+        return super().eventFilter(source, event)
+
+    def getClickedPosition(self, pos):
+        # consider the widget contents margins
+        contentsRect = QRectF(self.resim1.contentsRect())
+        if pos not in contentsRect:
+            # outside widget margins, ignore!
+            return
+
+        # adjust the position to the contents margins
+        pos -= contentsRect.topLeft()
+
+        pixmapRect = self.resim1.pixmap().rect()
+        if self.resim1.hasScaledContents():
+            x = pos.x() * pixmapRect.width() / contentsRect.width()
+            y = pos.y() * pixmapRect.height() / contentsRect.height()
+            pos = QPoint(x, y)
+        else:
+            align = self.resim1.alignment()
+            # for historical reasons, QRect (which is based on integer values),
+            # returns right() as (left+width-1) and bottom as (top+height-1),
+            # and so their opposite functions set/moveRight and set/moveBottom
+            # take that into consideration; using a QRectF can prevent that; see:
+            # https://doc.qt.io/qt-5/qrect.html#right
+            # https://doc.qt.io/qt-5/qrect.html#bottom
+            pixmapRect = QRectF(pixmapRect)
+
+            # the pixmap is not left aligned, align it correctly
+            if align & Qt.AlignRight:
+                pixmapRect.moveRight(contentsRect.x() + contentsRect.width())
+            elif align & Qt.AlignHCenter:
+                pixmapRect.moveLeft(contentsRect.center().x() - pixmapRect.width() / 2)
+            # the pixmap is not top aligned (note that the default for QLabel is
+            # Qt.AlignVCenter, the vertical center)
+            if align & Qt.AlignBottom:
+                pixmapRect.moveBottom(contentsRect.y() + contentsRect.height())
+            elif align & Qt.AlignVCenter:
+                pixmapRect.moveTop(contentsRect.center().y() - pixmapRect.height() / 2)
+
+            if not pos in pixmapRect:
+                # outside image margins, ignore!
+                return
+            # translate coordinates to the image position and convert it back to
+            # a QPoint, which is integer based
+            pos = (pos - pixmapRect.topLeft()).toPoint()
+
+        # print('X={}, Y={}'.format(pos.x(), pos.y()))
+        if self.posCount < 3:
+            print('X={}, Y={}'.format(pos.x(), pos.y()))
+            self.posList[self.posCount] = (pos.x(), pos.y())
+            self.posCount += 1
+        else:
+            print('X={}, Y={}'.format(pos.x(), pos.y()))
+            self.posList[self.posCount] = (pos.x(), pos.y())
+            print(self.posList)
+            self.close()
+
+    def getFilePath(self, str):
+        self.filePath = str
 
 
 if __name__ == '__main__':
