@@ -1,21 +1,15 @@
-import argparse
-
 import json
 import os
 import pathlib
-import sys, time
 
 import numpy
-from PyQt5.QtGui import QPixmap, QImage, QIcon, QStandardItemModel, QStandardItem, QFont, QCloseEvent
-from PyQt5.QtWidgets import QApplication, QPushButton, QLabel, QCheckBox, QTextBrowser, QTextEdit, QFileDialog, QWidget, \
-    QGraphicsPixmapItem, QGraphicsScene, QMessageBox, QHeaderView, QAbstractItemView, QTableView, QMainWindow, QDialog, \
-    QGraphicsView, QGridLayout
 from PyQt5 import uic
-from PyQt5.QtCore import QThread, pyqtSignal, QCoreApplication, QMetaObject, QRect, QRectF, QPoint, Qt, QEvent
 from PyQt5.Qt import QThread
-
-import platform
-import torch
+from PyQt5.QtCore import pyqtSignal, QRectF, QPoint, Qt, QEvent
+from PyQt5.QtGui import QPixmap, QImage, QIcon, QStandardItemModel, QStandardItem, QCloseEvent
+from PyQt5.QtWidgets import QApplication, QLabel, QFileDialog, QWidget, \
+    QGraphicsPixmapItem, QGraphicsScene, QMessageBox, QHeaderView, QAbstractItemView, QTableView, QMainWindow, QDialog, \
+    QGridLayout
 
 # limit the number of cpus used by high performance libraries
 os.environ["OMP_NUM_THREADS"] = "1"
@@ -28,7 +22,6 @@ import sys
 import numpy as np
 from pathlib import Path
 import torch
-import torch.backends.cudnn as cudnn
 
 # ----------------------------------------------------------------------------------
 # 添加时间计算相关的包
@@ -50,12 +43,10 @@ if str(ROOT / 'trackers' / 'strong_sort') not in sys.path:
 
 ROOT = Path(os.path.relpath(ROOT, Path.cwd()))  # relative
 
-import logging
 from yolov5.models.common import DetectMultiBackend
 from yolov5.utils.dataloaders import VID_FORMATS, LoadImages, LoadStreams
-from yolov5.utils.general import (LOGGER, check_img_size, non_max_suppression, scale_boxes, check_requirements, cv2,
-                                  check_imshow, xyxy2xywh, increment_path, strip_optimizer, colorstr, print_args,
-                                  check_file)
+from yolov5.utils.general import (LOGGER, check_img_size, non_max_suppression, scale_boxes, cv2,
+                                  check_imshow, increment_path, strip_optimizer, colorstr, check_file)
 from yolov5.utils.torch_utils import select_device, time_sync
 from yolov5.utils.plots import Annotator, colors, save_one_box
 from trackers.multi_tracker_zoo import create_tracker
