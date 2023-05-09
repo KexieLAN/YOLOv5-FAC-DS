@@ -5,8 +5,8 @@ import pathlib
 import numpy
 from PyQt5 import uic
 from PyQt5.Qt import QThread
-from PyQt5.QtCore import pyqtSignal, QRectF, QPoint, Qt, QEvent
-from PyQt5.QtGui import QPixmap, QImage, QIcon, QStandardItemModel, QStandardItem, QCloseEvent
+from PyQt5.QtCore import pyqtSignal, QRectF, QPoint, Qt, QEvent, QRegExp
+from PyQt5.QtGui import QPixmap, QImage, QIcon, QStandardItemModel, QStandardItem, QCloseEvent, QRegExpValidator
 from PyQt5.QtWidgets import QApplication, QLabel, QFileDialog, QWidget, \
     QGraphicsPixmapItem, QGraphicsScene, QMessageBox, QHeaderView, QAbstractItemView, QTableView, QMainWindow, QDialog, \
     QGridLayout
@@ -87,10 +87,12 @@ class trackThread(QThread):
         print(self.opt['source'])
         print(self.opt['save-vid'])
         print(self.opt['zone'])
+        print(self.opt['vid_stride'])
         if self.opt['zone']:
             self.zoneInfo = self.opt['zoneInfo']
         self.tracking(yolo_weights=pathlib.Path(self.opt['weights']), source=self.opt['source'],
-                      save_vid=self.opt['save-vid'], zone=self.opt['zone'], zonInfo=self.zoneInfo)
+                      save_vid=self.opt['save-vid'], zone=self.opt['zone'], zonInfo=self.zoneInfo,
+                      vid_stride=self.opt['vid_stride'])
 
     @torch.no_grad()
     def tracking(
@@ -118,7 +120,7 @@ class trackThread(QThread):
             project=ROOT / 'runs/track',  # save results to project/name
             name='exp',  # save results to project/name
             exist_ok=False,  # existing project/name ok, do not increment
-            line_thickness=2,  # bounding box thickness (pixels)
+            line_thickness=1,  # bounding box thickness (pixels)
             hide_labels=False,  # hide labels
             hide_conf=False,  # hide confidences
             hide_class=False,  # hide IDs
@@ -301,7 +303,7 @@ class trackThread(QThread):
                 if vid_stride != 1:
                     Timing = f"Timing({vid_stride}x): "
                 else:
-                    Timing = "Timing: "
+                    Timing = f"Timing({vid_stride}x): "
                 seen += 1
                 # 如果输入源为网络摄像头
                 if webcam:  # nr_sources >= 1
@@ -438,7 +440,7 @@ class trackThread(QThread):
                                     FaceingTimeCount[str(id)] += 1
 
                                     # time_id = (FaceingTimeCount[str(id)] / v_frames) * (v_frames / v_fps)
-                                    time_id = (FaceingTimeCount[str(id)] / v_fps)
+                                    time_id = (FaceingTimeCount[str(id)] / v_fps) * vid_stride
 
                                     time_id = strftime("%H:%M:%S", gmtime(time_id))
 
@@ -560,6 +562,7 @@ class trackUi(QMainWindow):
 
     def __init__(self):
         super().__init__()
+        self.vidStrider = None
         # 区域选择
         self.we = None
         self.zone = None
@@ -574,6 +577,7 @@ class trackUi(QMainWindow):
         self.personCountLabel = None
         self.vidShow = None
         self.modelPathShow = None
+        self.vidStride = 1
         self.ui_init()
 
     def ui_init(self):
@@ -612,6 +616,12 @@ class trackUi(QMainWindow):
         self.tableShow = self.ui.tableView
         self.initTableShow()
 
+        self.vidStrider = self.ui.vidStrider
+        reg = QRegExp('[0-9]+$')
+        validator = QRegExpValidator()
+        validator.setRegExp(reg)
+        self.vidStrider.setValidator(validator)
+
     def getVidPath(self):
         filename = QFileDialog.getOpenFileName(self.ui,
                                                '获取视频源',
@@ -647,12 +657,14 @@ class trackUi(QMainWindow):
                 self.trackingThread.isOver.connect(self.resetThreadSta)
                 self.trackingThread.logs.connect(self.showLog)
                 self.trackingThread.timing.connect(self.tableRe)
+                self.vidStride = self.getVidStride()
                 opts = json.dumps({
                     "weights": self.modelPath,
                     "source": self.filepath,
                     "save-vid": self.isSave,
                     "zone": self.zone,
-                    "zoneInfo": self.zoneInfo
+                    "zoneInfo": self.zoneInfo,
+                    "vid_stride": self.vidStride
                 })
                 self.trackingThread.setOpt(opts)
                 self.trackingThread.daemon = True
@@ -740,6 +752,16 @@ class trackUi(QMainWindow):
             C1 = QStandardItem('%s' % str(item[0]))
             C2 = QStandardItem('%s' % str(item[1]))
             self.tableModel.appendRow([C1, C2])
+
+    def getVidStride(self):
+        vs = self.vidStrider.text()
+        if vs == '' or len(vs) == 0:
+            vs = 1
+        elif int(vs) > 10:
+            vs = 10
+        elif int(vs) < 1:
+            vs = 1
+        return int(vs)
 
     def getPos(self, ls):
         self.zoneInfo = ls
