@@ -810,8 +810,11 @@ class zoneChosShowDialog(QDialog):
     def resimac(self):
         if self.filePath is None:
             return
-        if self.filePath.isdigit():
-            self.filePath = int(self.filePath)
+        if self.filePath == '':
+            self.filePath = 0
+        elif type(self.filePath) is not int:
+            if self.filePath.isdigit():
+                self.filePath = int(self.filePath)
         cap = cv2.VideoCapture(self.filePath)
         if cap.isOpened():
             print('vid get' + str(self.filePath))
