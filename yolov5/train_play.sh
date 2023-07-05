@@ -1,1 +1,0 @@
-python.exe detect.py --weights='crowdhuman_yolov5m.pt' --source='G:/FAC_EX/train/images' --data='crowdhuman.yaml' --classes 0 --project='G:/FAC_EX/val' --line-thickness=1 --save-txt

@@ -6,7 +6,8 @@ Loss functions
 import torch
 import torch.nn as nn
 
-from utils.metrics import bbox_iou
+# from utils.metrics import bbox_iou
+from utils.MulIoU import bbox_iou
 from utils.torch_utils import de_parallel
 
 
@@ -139,16 +140,20 @@ class ComputeLoss:
                 pwh = (pwh.sigmoid() * 2) ** 2 * anchors[i]
                 pbox = torch.cat((pxy, pwh), 1)  # predicted box
                 # ----------------------------------------------------------------------------
-                iou = bbox_iou(pbox, tbox[i], CIoU=True).squeeze()  # iou(prediction, target)
-                lbox += (1.0 - iou).mean()  # iou loss
+                # iou = bbox_iou(pbox, tbox[i], CIoU=True).squeeze()  # iou(prediction, target)
+                # lbox += (1.0 - iou).mean()  # iou loss
                 # ----------------------------------------------------------------------------
-                # iou = bbox_iou(pbox, tbox[i], EIoU=True, Focal=True)
-                # if type(iou) is tuple:
-                #     lbox += (iou[1].detach().squeeze() * (1 * iou[0].squeeze())).mean()
-                #     iou = iou[0].squeeze()
-                # else:
-                #     lbox += (1.0 - iou.squeeze()).mean()
-                #     iou = iou.squeeze()
+                iou = bbox_iou(pbox, tbox[i], CIoU=True)
+                if type(iou) is tuple:
+                    if len(iou) == 2:
+                        lbox += (iou[1].detach().squeeze() * (1 - iou[0].squeeze())).mean()
+                        iou = iou[0].squeeze()
+                    else:
+                        lbox += (iou[0] * iou[1]).mean()
+                        iou = iou[2].squeeze()
+                else:
+                    lbox += (1.0 - iou.squeeze()).mean()  # iou loss
+                    iou = iou.squeeze()
                 # ----------------------------------------------------------------------------
 
                 # Objectness

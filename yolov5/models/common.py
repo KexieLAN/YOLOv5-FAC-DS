@@ -32,7 +32,7 @@ from utils.general import (LOGGER, ROOT, Profile, check_requirements, check_suff
                            xyxy2xywh, yaml_load)
 from utils.plots import Annotator, colors, save_one_box
 from utils.torch_utils import copy_attr, smart_inference_mode
-
+from torch.nn import init
 
 # 自动求padding参数
 def autopad(k, p=None, d=1):  # kernel, padding, dilation
@@ -176,7 +176,7 @@ class C3(nn.Module):
 # YOLOv8的C2f模块，可用于替代YOLOv5原生的C3模块
 class C2f(nn.Module):
     # CSP Bottleneck with 2 convolutions
-    def __init__(self, c1, c2, n=1, shortcut=False, g=1, e=0.5):  # ch_in, ch_out, number, shortcut, groups, expansion
+    def __init__(self, c1, c2, n=1, shortcut=True, g=1, e=0.5):  # ch_in, ch_out, number, shortcut, groups, expansion
         super().__init__()
         self.c = int(c2 * e)  # hidden channels
         self.cv1 = Conv(c1, 2 * self.c, 1, 1)
@@ -898,48 +898,180 @@ class Classify(nn.Module):
             x = torch.cat(x, 1)
         return self.linear(self.drop(self.pool(self.conv(x)).flatten(1)))
 
-
-class SE(nn.Module):
-    # ratio：缩放比例
-    def __init__(self, channel, ratio=16):
-        super(SE, self).__init__()
-        # 对输入的特征层进行自适应全局平均池化（高，宽）
-        self.avgpooling = nn.AdaptiveAvgPool2d(1)
-        self.model = nn.Sequential(
-            # 两次全连接操作
-            # 第一次全连接神经元个数较少，第二次全连接神经元个数和输入特征层相同。
-            # 先对C个通道降维再扩展回C通道。好处就是一方面降低了网络计算量，一方面增加了网络的非线性能力。
-            nn.Linear(channel, channel // ratio, bias=False),
-            nn.ReLU(inplace=True),
-            nn.Linear(channel // ratio, channel, bias=False),
-            # Sigmod将输出固定在0~1之间
-            nn.Sigmoid()
-        )
-
-    def forward(self, x):
-        b, c, _, _ = x.size()
-        # b,c,w,h  ->  b,c,1,1
-        y = self.avgpooling(x).view(b, c)
-        # b,c -> b,c/ratio -> b,c -> b,c,1,1
-        y = self.model(y).view(b, c, 1, 1)
-        return x * y
-
-class EAC(nn.Module):
-    def __init__(self, channle, b=1, gamma=2):
-        super(EAC, self).__init__()
-        # 求卷积核大小
-        kernel_size = int(abs((math.log(channle, 2) + b) / gamma))
-        kernel_size = kernel_size if kernel_size % 2 else kernel_size + 1
-        padding = kernel_size // 2
-        # 在全局平均池化后，加一个1D卷积进行学习
+# CBAM
+class ChannelAttention(nn.Module):
+    def __init__(self, channel, reduction=16):
+        super().__init__()
+        self.maxpool = nn.AdaptiveMaxPool2d(1)
         self.avgpool = nn.AdaptiveAvgPool2d(1)
-        # 1D卷积就是横着（顺着一个维度）扫完
-        self.conv1d = nn.Conv1d(1, 1, kernel_size, padding=padding, bias=False)
+        self.se = nn.Sequential(
+            nn.Conv2d(channel, channel // reduction, 1, bias=False),
+            nn.ReLU(),
+            nn.Conv2d(channel // reduction, channel, 1, bias=False)
+        )
         self.sigmoid = nn.Sigmoid()
 
     def forward(self, x):
-        b, c, w, h = x.size()
-        avg = self.avgpool(x).view([b, 1, c])
-        out = self.conv1d(avg)
-        out = self.sigmoid(out).view([b, c, 1, 1])
-        return out * x
+        max_result = self.maxpool(x)
+        avg_result = self.avgpool(x)
+        max_out = self.se(max_result)
+        avg_out = self.se(avg_result)
+        output = self.sigmoid(max_out + avg_out)
+        return output
+
+
+class SpatialAttention(nn.Module):
+    def __init__(self, kernel_size=7):
+        super().__init__()
+        self.conv = nn.Conv2d(2, 1, kernel_size=kernel_size, padding=kernel_size // 2)
+        self.sigmoid = nn.Sigmoid()
+
+    def forward(self, x):
+        max_result, _ = torch.max(x, dim=1, keepdim=True)
+        avg_result = torch.mean(x, dim=1, keepdim=True)
+        result = torch.cat([max_result, avg_result], 1)
+        output = self.conv(result)
+        output = self.sigmoid(output)
+        return output
+
+
+class CBAM(nn.Module):
+
+    def __init__(self, channel=512, reduction=16, kernel_size=7):
+        super().__init__()
+        self.chat = ChannelAttention(channel=channel, reduction=reduction)
+        self.spat = SpatialAttention(kernel_size=kernel_size)
+
+    def init_weights(self):
+        for m in self.modules():
+            if isinstance(m, nn.Conv2d):
+                init.kaiming_normal_(m.weight, mode='fan_out')
+                if m.bias is not None:
+                    init.constant_(m.bias, 0)
+            elif isinstance(m, nn.BatchNorm2d):
+                init.constant_(m.weight, 1)
+                init.constant_(m.bias, 0)
+            elif isinstance(m, nn.Linear):
+                init.normal_(m.weight, std=0.001)
+                if m.bias is not None:
+                    init.constant_(m.bias, 0)
+
+    def forward(self, x):
+        b, c, _, _ = x.size()
+        out = x * self.chat(x)
+        out = out * self.spat(out)
+        return out
+
+# SE
+class SE(nn.Module):
+
+    def __init__(self, channel=512,reduction=16):
+        super().__init__()
+        self.avg_pool = nn.AdaptiveAvgPool2d(1)
+        self.fc = nn.Sequential(
+            nn.Linear(channel, channel // reduction, bias=False),
+            nn.ReLU(inplace=True),
+            nn.Linear(channel // reduction, channel, bias=False),
+            nn.Sigmoid()
+        )
+    def init_weights(self):
+        for m in self.modules():
+            if isinstance(m, nn.Conv2d):
+                init.kaiming_normal_(m.weight, mode='fan_out')
+                if m.bias is not None:
+                    init.constant_(m.bias, 0)
+            elif isinstance(m, nn.BatchNorm2d):
+                init.constant_(m.weight, 1)
+                init.constant_(m.bias, 0)
+            elif isinstance(m, nn.Linear):
+                init.normal_(m.weight, std=0.001)
+                if m.bias is not None:
+                    init.constant_(m.bias, 0)
+
+    def forward(self, x):
+        b, c, _, _ = x.size()
+        y = self.avg_pool(x).view(b, c)
+        y = self.fc(y).view(b, c, 1, 1)
+        return x * y.expand_as(x)
+
+# CA
+class h_sigmoid(nn.Module):
+    def __init__(self, inplace=True):
+        super(h_sigmoid, self).__init__()
+        self.relu = nn.ReLU6(inplace=inplace)
+
+    def forward(self, x):
+        return self.relu(x + 3) / 6
+
+
+class h_swish(nn.Module):
+    def __init__(self, inplace=True):
+        super(h_swish, self).__init__()
+        self.sigmoid = h_sigmoid(inplace=inplace)
+
+    def forward(self, x):
+        return x * self.sigmoid(x)
+
+
+class CA(nn.Module):
+    def __init__(self, inp, reduction=32):
+        super(CA, self).__init__()
+        self.pool_h = nn.AdaptiveAvgPool2d((None, 1))
+        self.pool_w = nn.AdaptiveAvgPool2d((1, None))
+
+        mip = max(8, inp // reduction)
+
+        self.conv1 = nn.Conv2d(inp, mip, kernel_size=1, stride=1, padding=0)
+        self.bn1 = nn.BatchNorm2d(mip)
+        self.act = h_swish()
+
+        self.conv_h = nn.Conv2d(mip, inp, kernel_size=1, stride=1, padding=0)
+        self.conv_w = nn.Conv2d(mip, inp, kernel_size=1, stride=1, padding=0)
+
+    def forward(self, x):
+        identity = x
+
+        n, c, h, w = x.size()
+        x_h = self.pool_h(x)
+        x_w = self.pool_w(x).permute(0, 1, 3, 2)
+
+        y = torch.cat([x_h, x_w], dim=2)
+        y = self.conv1(y)
+        y = self.bn1(y)
+        y = self.act(y)
+
+        x_h, x_w = torch.split(y, [h, w], dim=2)
+        x_w = x_w.permute(0, 1, 3, 2)
+
+        a_h = self.conv_h(x_h).sigmoid()
+        a_w = self.conv_w(x_w).sigmoid()
+
+        out = identity * a_w * a_h
+
+        return out
+# SimAM
+class SimAM(torch.nn.Module):
+    def __init__(self, e_lambda=1e-4):
+        super(SimAM, self).__init__()
+
+        self.activaton = nn.Sigmoid()
+        self.e_lambda = e_lambda
+
+    def __repr__(self):
+        s = self.__class__.__name__ + '('
+        s += ('lambda=%f)' % self.e_lambda)
+        return s
+
+    @staticmethod
+    def get_module_name():
+        return "simam"
+
+    def forward(self, x):
+        b, c, h, w = x.size()
+
+        n = w * h - 1
+
+        x_minus_mu_square = (x - x.mean(dim=[2, 3], keepdim=True)).pow(2)
+        y = x_minus_mu_square / (4 * (x_minus_mu_square.sum(dim=[2, 3], keepdim=True) / n + self.e_lambda)) + 0.5
+
+        return x * self.activaton(y)

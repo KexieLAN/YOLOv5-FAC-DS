@@ -43,7 +43,7 @@ if str(ROOT / 'trackers' / 'strong_sort') not in sys.path:
 
 ROOT = Path(os.path.relpath(ROOT, Path.cwd()))  # relative
 
-from yolov5.models.common import DetectMultiBackend
+from yolov5.models.common import *
 from yolov5.utils.dataloaders import VID_FORMATS, LoadImages, LoadStreams
 from yolov5.utils.general import (LOGGER, check_img_size, non_max_suppression, scale_boxes, cv2,
                                   check_imshow, increment_path, strip_optimizer, colorstr, check_file)
@@ -62,9 +62,6 @@ class trackThread(QThread):
     logs = pyqtSignal(str)
     timing = pyqtSignal(dict)
     zoneInfo = None
-
-    # zoneInfo = None
-
     def __init__(self):
         super().__init__()
 
@@ -75,14 +72,6 @@ class trackThread(QThread):
         self.opt = json.loads(opt)
 
     def run(self) -> None:
-        # while True:
-        #     if self.sta:
-        #         print("收到")
-        #         print(self.opt)
-        #     else:
-        #         print("未收到")
-        #         break
-        #     time.sleep(1)
         print(self.opt['weights'])
         print(self.opt['source'])
         print(self.opt['save-vid'])
@@ -102,8 +91,8 @@ class trackThread(QThread):
             reid_weights=WEIGHTS / 'osnet_x0_25_msmt17.pt',  # model.pt path,
             tracking_method='strongsort',
             imgsz=(640, 640),  # inference size (height, width)
-            conf_thres=0.45,  # confidence threshold
-            iou_thres=0.25,  # NMS IOU threshold
+            conf_thres=0.35,  # confidence threshold
+            iou_thres=0.35,  # NMS IOU threshold
             max_det=1000,  # maximum detections per image
             device='0',  # cuda device, i.e. 0 or 0,1,2,3 or cpu
             show_vid=True,  # show results
@@ -182,7 +171,7 @@ class trackThread(QThread):
             dataset = LoadStreams(source, img_size=imgsz, stride=stride, auto=pt, vid_stride=vid_stride)
             nr_sources = len(dataset)
         else:
-            # 测试，增加vid_stride
+            # 视频源为文件，增加vid_stride
             dataset = LoadImages(source, img_size=imgsz, stride=stride, auto=pt, vid_stride=vid_stride)
             nr_sources = 1
         vid_path, vid_writer, txt_path = [None] * nr_sources, [None] * nr_sources, [None] * nr_sources
@@ -205,7 +194,7 @@ class trackThread(QThread):
         # Run tracking
         # 运行追踪，开始进行追踪
         # model.warmup(imgsz=(1 if pt else nr_sources, 3, *imgsz))  # warmup
-        # dt：存储信息用的[准备时间，识别时间，净化时间，追迹时间],seen算是一种索引？计数？
+        # dt：存储信息用的[准备时间，识别时间，净化时间，追迹时间]
         dt, seen = [0.0, 0.0, 0.0, 0.0], 0
         curr_frames, prev_frames = [None] * nr_sources, [None] * nr_sources
 
@@ -220,9 +209,11 @@ class trackThread(QThread):
         vc_temp = None
         for frame_idx, (path, im, im0s, vid_cap, s) in enumerate(dataset):
             if not self.sta and frame_idx != 0:
+                # vc_temp.release()
                 break
             vc_temp = vid_cap
             # ----------------------------------------------------------------------------------------------------------
+            # 区域检测代码，接收来自信号的json数据
             if zone:
                 h1 = zonInfo[0][1] / v_h
                 w1 = zonInfo[0][0] / v_w
@@ -235,11 +226,11 @@ class trackThread(QThread):
 
                 h4 = zonInfo[3][1] / v_h
                 w4 = zonInfo[3][0] / v_w
-
+                # 针对摄像头创建遮罩
                 if webcam:
                     for b in range(0, im.shape[0]):
+                        # 创建遮罩，屏蔽非识别区
                         mask = numpy.zeros([im[b].shape[1], im[b].shape[2]], dtype=numpy.uint8)
-                        # mask[round(img[b].shape[1] * hl1):img[b].shape[1], round(img[b].shape[2] * wl1):img[b].shape[2]] = 255
                         pts = numpy.array([[int(im[b].shape[2] * w1), int(im[b].shape[1] * w1)],  # pts1
                                            [int(im[b].shape[2] * w2), int(im[b].shape[1] * h2)],  # pts2
                                            [int(im[b].shape[2] * w3), int(im[b].shape[1] * h3)],  # pts3
@@ -249,7 +240,7 @@ class trackThread(QThread):
                         imgc = cv2.add(imgc, numpy.zeros(numpy.shape(imgc), dtype=numpy.uint8), mask=mask)
                         # cv2.imshow('1',imgc)
                         im[b] = imgc.transpose((2, 0, 1))
-
+                # 针对视频文件创建遮罩
                 else:
                     mask = numpy.zeros([im.shape[1], im.shape[2]], dtype=numpy.uint8)
                     # mask[round(img.shape[1] * hl1):img.shape[1], round(img.shape[2] * wl1):img.shape[2]] = 255
@@ -262,7 +253,7 @@ class trackThread(QThread):
                     im = cv2.add(im, numpy.zeros(numpy.shape(im), dtype=numpy.uint8), mask=mask)
                     im = im.transpose((2, 0, 1))
             # ----------------------------------------------------------------------------------------------------------
-            # GPU流转等待？
+            # GPU流转等待计时
             t1 = time_sync()
             # 数据转入CDUA设备
             im = torch.from_numpy(im).to(device)
@@ -276,7 +267,6 @@ class trackThread(QThread):
 
             # Inference
             # 推理阶段
-
             # 递增文件目录
             visualize = increment_path(save_dir / Path(path[0]).stem, mkdir=True) if visualize else False
             # 交由YOLO进行识别
@@ -300,15 +290,13 @@ class trackThread(QThread):
                 Count = "Counts: "
                 counttuple = [torch.tensor(0), torch.tensor(0)]
                 # 展示在Label上的时间可能不便于观察，故在视频右上角展示计时
-                if vid_stride != 1:
-                    Timing = f"Timing({vid_stride}x): "
-                else:
-                    Timing = f"Timing({vid_stride}x): "
+                Timing = f"Timing({vid_stride}x): "
                 seen += 1
                 # 如果输入源为网络摄像头
                 if webcam:  # nr_sources >= 1
                     p, im0, _ = path[i], im0s[i].copy(), dataset.count
                     # ----------------------------------------------------------------------------------------------
+                    # 在检测画面上绘制检测区域
                     if zone:
                         cv2.putText(im0, "Detection_Region", (int(im0.shape[1] * w1 - 5), int(im0.shape[0] * h1 - 5)),
                                     cv2.FONT_HERSHEY_SIMPLEX,
@@ -334,6 +322,7 @@ class trackThread(QThread):
                     #     当给定默认参数时，当属性未给出时返回
                     #     存在;如果没有它，在这种情况下会引发异常。
                     p, im0, _ = path, im0s.copy(), getattr(dataset, 'frame', 0)
+                    # 在检测画面上绘制检测区域
                     if zone:
                         cv2.putText(im0, "Detection_Region", (int(im0.shape[1] * w1 - 5), int(im0.shape[0] * h1 - 5)),
                                     cv2.FONT_HERSHEY_SIMPLEX,
@@ -428,7 +417,7 @@ class trackThread(QThread):
                                 c = int(cls)  # integer class   类别
                                 id = int(id)  # integer id  ID
                                 # -------------------------------------------------------------------------
-                                # 大概可以在此处插入->计时代码，在将计时结果输出到标签上
+                                # 此处为计时代码，在将计时结果输出到标签上
                                 # 计时方式：记录目标ID出现的帧的数量，用获得的帧的数量比上视频帧的数量，
                                 #         用这个比值乘上视频时间长度，可以大体估算出时间
                                 # 检测类别是否为我们需要的
@@ -438,9 +427,10 @@ class trackThread(QThread):
                                         FaceingTimeCount[str(id)] = 0
                                         FaceingTiming[str(id)] = ''
                                     FaceingTimeCount[str(id)] += 1
-
+                                    # 旧的检测方法，已弃用
                                     # time_id = (FaceingTimeCount[str(id)] / v_frames) * (v_frames / v_fps)
-                                    time_id = (FaceingTimeCount[str(id)] / v_fps) * vid_stride
+                                    time_id = (FaceingTimeCount[str(id)] / v_fps)
+                                              # * vid_stride
 
                                     time_id = strftime("%H:%M:%S", gmtime(time_id))
 
@@ -512,7 +502,7 @@ class trackThread(QThread):
                     for dus, txt in enumerate(Count.split('\n')):
                         y = y0 + dus * dy
                         cv2.putText(im0, txt, (50, y), cv2.FONT_HERSHEY_SIMPLEX, 1.2, (0, 0, 255), 3, 2)
-                        # --------------------------------------------------------------------------------------
+                    # --------------------------------------------------------------------------------------
                     for dus, txt in enumerate(Timing.split('\n')):
                         y = y0 + dus * dy
                         cv2.putText(im0, txt, (v_width - 300, y), cv2.FONT_HERSHEY_SIMPLEX, 1.2, (0, 0, 255), 3, 2)
@@ -542,24 +532,25 @@ class trackThread(QThread):
         if save_txt or save_vid:
             s = f"\n{len(list(save_dir.glob('tracks/*.txt')))} tracks saved to {save_dir / 'tracks'}" if save_txt else ''
             LOGGER.info(f"Results saved to {colorstr('bold', save_dir)}{s}")
+            self.logs.emit(f"Results saved to {save_dir}{s}")
         if update:
             strip_optimizer(yolo_weights)  # update model (to fix SourceChangeWarning)
         # vid_cap.release()
-        # 进程结束
+        # 进程结束，返回信号
         self.isOver.emit(True)
 
 
 class trackUi(QMainWindow):
-    ui = None
-    fileChos, filePathShow = None, None
-    filepath = '0'
-    modelPath = None
-    trackingThread = None
-    stopBtn = None
-    startBtn = None
-    modelSelect = None
-    isSave = False
-
+    ui = None       # UI文件
+    fileChos, filePathShow = None, None # 文件选择与文件路径显示组件
+    filepath = '0'  # 文件路径，默认为0，使用默认摄像头
+    modelPath = None    # 模型文件路径
+    trackingThread = None   # 检测计时线程
+    stopBtn = None      # 中止按钮
+    startBtn = None     # 启动按钮
+    modelSelect = None  # 模型选择组件
+    isSave = False      # 是否保存
+    # 界面初始化函数
     def __init__(self):
         super().__init__()
         self.vidStrider = None
@@ -569,19 +560,27 @@ class trackUi(QMainWindow):
         self.zoneInfo = None
         # 区域选择复选框
         self.zoneChos = None
+        # 计时展示表
         self.tableModel = None
         self.tableShow = None
         self.saveVid = None
+        # 识别日志展示组件
         self.textBox = None
+        # 计数展示组件
         self.dir_faceCountLabel = None
         self.personCountLabel = None
+        # 实时画面展示组件
         self.vidShow = None
         self.modelPathShow = None
+        # 视频倍速参数
         self.vidStride = 1
+        # 界面初始化函数
         self.ui_init()
 
     def ui_init(self):
+        # 初始化界面与组件绑定
         self.ui = uic.loadUi('track_ui.ui')
+        self.ui.setWindowFlags(Qt.WindowMinimizeButtonHint|Qt.WindowCloseButtonHint)
         self.ui.setWindowIcon(QIcon('PYApplication_16x.ico'))
 
         self.fileChos = self.ui.file
@@ -621,7 +620,7 @@ class trackUi(QMainWindow):
         validator = QRegExpValidator()
         validator.setRegExp(reg)
         self.vidStrider.setValidator(validator)
-
+    # 文件选择对话框创建函数
     def getVidPath(self):
         filename = QFileDialog.getOpenFileName(self.ui,
                                                '获取视频源',
@@ -633,7 +632,7 @@ class trackUi(QMainWindow):
             self.filepath = 0
         else:
             self.filepath = filename[0]
-
+    # 模型选择对话框创建函数
     def getModPath(self):
         modelPath = QFileDialog.getOpenFileName(self.ui,
                                                 '选择识别模型',
@@ -641,7 +640,7 @@ class trackUi(QMainWindow):
                                                 "模型 (*.pt)")
         self.modelPathShow.setText(modelPath[0])
         self.modelPath = modelPath[0]
-
+    # 检测计时线程启动函数
     def startYoloThread(self):
         if self.trackingThread is None:
             if self.modelPath != '' and self.modelPath is not None:
@@ -651,6 +650,7 @@ class trackUi(QMainWindow):
                     self.we.posC.connect(self.getPos)
                     self.we.exec()
                 self.tableClearn()
+                # 创建信号，绑定槽函数
                 self.trackingThread = trackThread()  # 创建线程
                 self.trackingThread.preImg.connect(self.showVid)
                 self.trackingThread.counts.connect(self.showCount)
@@ -675,7 +675,7 @@ class trackUi(QMainWindow):
                                     QMessageBox.Yes)
         else:
             print("线程已存在，请等待执行完成")
-
+    # 检测计时线程中止函数
     def stopYoloThread(self):
         if self.trackingThread is None:
             print('进程不存在，任务未开始')
@@ -687,7 +687,7 @@ class trackUi(QMainWindow):
             else:
                 print("进程已自然结束")
                 self.trackingThread = None
-
+    # 实时画面展示函数
     def showVid(self, img):
         img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
         x = img.shape[1]  # 获取图像大小
@@ -700,31 +700,31 @@ class trackUi(QMainWindow):
         scene = QGraphicsScene()  # 创建场景
         scene.addItem(item)
         self.vidShow.setScene(scene)  # 将场景添加至视图
-
+    # 人群计数与人正面计数展示函数
     def showCount(self, cps):
         self.personCountLabel.setText(str(cps[0].item()))
         self.dir_faceCountLabel.setText(str(cps[1].item()))
-
+    # 重置线程库
     def resetThreadSta(self, ts):
         if ts:
             self.trackingThread = None
-
+    # 识别日志展示函数
     def showLog(self, msg):
         self.textBox.append(msg + "<br>")
         self.textBox.repaint()
-
+    # “保存视频”候选框
     def saveVidCheckBox(self):
         if self.saveVid.isChecked():
             self.isSave = True
         else:
             self.isSave = False
-
+    # “区域检测”候选框
     def zoneCheckBox(self):
         if self.zoneChos.isChecked():
             self.zone = True
         else:
             self.zone = False
-
+    # 计时展示表格初始化函数
     def initTableShow(self):
         # 创建一个 0行3列 的标准模型
         self.tableModel = QStandardItemModel(0, 2)
@@ -739,20 +739,20 @@ class trackUi(QMainWindow):
 
         # self.tableView.setSelectionBehavior(QAbstractItemView.SelectRows)  # 设置只能选中整行
         # self.tableView.setSelectionMode(QAbstractItemView.ExtendedSelection)  # 设置只能选中多行
-
+    # 计时展示表格清理函数
     def tableClearn(self):
         # 会全部清空，包括那个标准表头
         self.tableModel.clear()
         # 所以重新设置标准表头 自己将一下代码注释 尝试
         self.tableModel.setHorizontalHeaderLabels(['正脸ID', '时间'])
-
+    # 计时展示表格刷新函数
     def tableRe(self, dic):
         self.tableClearn()
         for item in dic.items():
             C1 = QStandardItem('%s' % str(item[0]))
             C2 = QStandardItem('%s' % str(item[1]))
             self.tableModel.appendRow([C1, C2])
-
+    # 获取并判断视频倍速是否合法
     def getVidStride(self):
         vs = self.vidStrider.text()
         if vs == '' or len(vs) == 0:
@@ -766,36 +766,38 @@ class trackUi(QMainWindow):
     def getPos(self, ls):
         self.zoneInfo = ls
 
-
+# 区域划定对话框类
 class zoneChosShowDialog(QDialog):
     posC = pyqtSignal(list)
     filePath = None
     posList = [(0, 0), (0, 0), (0, 0), (0, 0)]
     posCount = 0
-
+    # 初始化函数
     def __init__(self, ffp):
         QWidget.__init__(self)
+        self.setWindowFlags(Qt.WindowMinimizeButtonHint)
         self.filePath = ffp
         self.resize(1280, 720)
-        self.setWindowTitle('区域选的')
+        self.setWindowTitle('区域选择')
         layout = QGridLayout(self)
 
         # self.getImageButton = QPushButton('OK')
         # layout.addWidget(self.getImageButton)
         # self.getImageButton.clicked.connect(self.resimac)
-
+        # 图像展示组件
         self.resim1 = QLabel()
         layout.addWidget(self.resim1)
         self.resim1.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-        # I'm assuming the following...
+        # 修改对话框界面属性
         self.resim1.setScaledContents(True)
         self.resim1.setFixedSize(1024, 768)
 
         # install an event filter to "capture" mouse events (amongst others)
+        # 更新事件过滤器
         self.resim1.installEventFilter(self)
         print(self.filePath)
         self.resimac()
-
+    # 重写窗口关闭事件
     def closeEvent(self, a0: QCloseEvent) -> None:
         """
         重写QWidget类的closrEvent方法，在窗口被关闭的时候自动触发
@@ -828,12 +830,13 @@ class zoneChosShowDialog(QDialog):
     def eventFilter(self, source, event):
         # if the source is our QLabel, it has a valid pixmap, and the event is
         # a left click, proceed in trying to get the event position
+        # 左键点击QLable组件将会返回源的坐标
         if (source == self.resim1 and source.pixmap() and not source.pixmap().isNull() and
                 event.type() == QEvent.MouseButtonPress and
                 event.button() == Qt.LeftButton):
             self.getClickedPosition(event.pos())
         return super().eventFilter(source, event)
-
+    # 获取点击位置坐标
     def getClickedPosition(self, pos):
         # consider the widget contents margins
         contentsRect = QRectF(self.resim1.contentsRect())
@@ -842,6 +845,7 @@ class zoneChosShowDialog(QDialog):
             return
 
         # adjust the position to the contents margins
+        # 调整坐标
         pos -= contentsRect.topLeft()
 
         pixmapRect = self.resim1.pixmap().rect()
@@ -851,34 +855,26 @@ class zoneChosShowDialog(QDialog):
             pos = QPoint(x, y)
         else:
             align = self.resim1.alignment()
-            # for historical reasons, QRect (which is based on integer values),
-            # returns right() as (left+width-1) and bottom as (top+height-1),
-            # and so their opposite functions set/moveRight and set/moveBottom
-            # take that into consideration; using a QRectF can prevent that; see:
             # https://doc.qt.io/qt-5/qrect.html#right
             # https://doc.qt.io/qt-5/qrect.html#bottom
             pixmapRect = QRectF(pixmapRect)
 
-            # the pixmap is not left aligned, align it correctly
             if align & Qt.AlignRight:
                 pixmapRect.moveRight(contentsRect.x() + contentsRect.width())
             elif align & Qt.AlignHCenter:
                 pixmapRect.moveLeft(contentsRect.center().x() - pixmapRect.width() / 2)
-            # the pixmap is not top aligned (note that the default for QLabel is
-            # Qt.AlignVCenter, the vertical center)
             if align & Qt.AlignBottom:
                 pixmapRect.moveBottom(contentsRect.y() + contentsRect.height())
             elif align & Qt.AlignVCenter:
                 pixmapRect.moveTop(contentsRect.center().y() - pixmapRect.height() / 2)
 
             if not pos in pixmapRect:
-                # outside image margins, ignore!
+                # 忽略非QLable内的鼠标点击事件
                 return
-            # translate coordinates to the image position and convert it back to
-            # a QPoint, which is integer based
             pos = (pos - pixmapRect.topLeft()).toPoint()
 
         # print('X={}, Y={}'.format(pos.x(), pos.y()))
+        # 当用户选择坐标数到达4个时，退出对话框并传递参数
         if self.posCount < 3:
             print('X={}, Y={}'.format(pos.x(), pos.y()))
             self.posList[self.posCount] = (pos.x(), pos.y())
