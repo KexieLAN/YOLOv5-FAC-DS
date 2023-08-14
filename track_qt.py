@@ -62,6 +62,7 @@ class trackThread(QThread):
     logs = pyqtSignal(str)
     timing = pyqtSignal(dict)
     zoneInfo = None
+
     def __init__(self):
         super().__init__()
 
@@ -425,22 +426,27 @@ class trackThread(QThread):
                                     # 将新id写入字典
                                     if str(id) not in FaceingTimeCount.keys():
                                         FaceingTimeCount[str(id)] = 0
-                                        FaceingTiming[str(id)] = ''
                                     FaceingTimeCount[str(id)] += 1
                                     # 旧的检测方法，已弃用
                                     # time_id = (FaceingTimeCount[str(id)] / v_frames) * (v_frames / v_fps)
-                                    time_id = (FaceingTimeCount[str(id)] / v_fps)
-                                              # * vid_stride
+                                    if (FaceingTimeCount[str(id)]*vid_stride)>v_fps:
+                                        FaceingTiming[str(id)] = ''
+                                        time_id = (FaceingTimeCount[str(id)] / v_fps)
+                                        time_id = strftime("%H:%M:%S", gmtime(time_id))
 
-                                    time_id = strftime("%H:%M:%S", gmtime(time_id))
-
-                                    label = None if hide_labels else (f'{id} {names[c]} {time_id}' if hide_conf else \
-                                                                          (
-                                                                              f'{id} {conf:.2f} {time_id}' if hide_class else
-                                                                              f'{id} {names[c]} {conf:.2f} {time_id}'))
-                                    annotator.box_label(bboxes, label, color=colors(c, True))
-                                    Timing += '\n' + f"{id} {time_id}"
-                                    FaceingTiming[str(id)] = time_id
+                                        label = None if hide_labels else (f'{id} {names[c]} {time_id}' if hide_conf else \
+                                                                              (
+                                                                                  f'{id} {conf:.2f} {time_id}' if hide_class else
+                                                                                  f'{id} {names[c]} {conf:.2f} {time_id}'))
+                                        annotator.box_label(bboxes, label, color=colors(c, True))
+                                        Timing += '\n' + f"{id} {time_id}"
+                                        FaceingTiming[str(id)] = time_id
+                                    else:
+                                        label = None if hide_labels else (f'{id} {names[c]}' if hide_conf else \
+                                                                              (
+                                                                                  f'{id} {conf:.2f} ' if hide_class else
+                                                                                  f'{id} {names[c]} {conf:.2f}'))
+                                        annotator.box_label(bboxes, label, color=colors(c, True))
                                 # -------------------------------------------------------------------------
                                 # 不必要的就不输出时间
                                 else:
@@ -541,15 +547,16 @@ class trackThread(QThread):
 
 
 class trackUi(QMainWindow):
-    ui = None       # UI文件
-    fileChos, filePathShow = None, None # 文件选择与文件路径显示组件
+    ui = None  # UI文件
+    fileChos, filePathShow = None, None  # 文件选择与文件路径显示组件
     filepath = '0'  # 文件路径，默认为0，使用默认摄像头
-    modelPath = None    # 模型文件路径
-    trackingThread = None   # 检测计时线程
-    stopBtn = None      # 中止按钮
-    startBtn = None     # 启动按钮
+    modelPath = None  # 模型文件路径
+    trackingThread = None  # 检测计时线程
+    stopBtn = None  # 中止按钮
+    startBtn = None  # 启动按钮
     modelSelect = None  # 模型选择组件
-    isSave = False      # 是否保存
+    isSave = False  # 是否保存
+
     # 界面初始化函数
     def __init__(self):
         super().__init__()
@@ -580,7 +587,7 @@ class trackUi(QMainWindow):
     def ui_init(self):
         # 初始化界面与组件绑定
         self.ui = uic.loadUi('track_ui.ui')
-        self.ui.setWindowFlags(Qt.WindowMinimizeButtonHint|Qt.WindowCloseButtonHint)
+        self.ui.setWindowFlags(Qt.WindowMinimizeButtonHint | Qt.WindowCloseButtonHint)
         self.ui.setWindowIcon(QIcon('PYApplication_16x.ico'))
 
         self.fileChos = self.ui.file
@@ -620,6 +627,7 @@ class trackUi(QMainWindow):
         validator = QRegExpValidator()
         validator.setRegExp(reg)
         self.vidStrider.setValidator(validator)
+
     # 文件选择对话框创建函数
     def getVidPath(self):
         filename = QFileDialog.getOpenFileName(self.ui,
@@ -632,6 +640,7 @@ class trackUi(QMainWindow):
             self.filepath = 0
         else:
             self.filepath = filename[0]
+
     # 模型选择对话框创建函数
     def getModPath(self):
         modelPath = QFileDialog.getOpenFileName(self.ui,
@@ -640,6 +649,7 @@ class trackUi(QMainWindow):
                                                 "模型 (*.pt)")
         self.modelPathShow.setText(modelPath[0])
         self.modelPath = modelPath[0]
+
     # 检测计时线程启动函数
     def startYoloThread(self):
         if self.trackingThread is None:
@@ -675,6 +685,7 @@ class trackUi(QMainWindow):
                                     QMessageBox.Yes)
         else:
             print("线程已存在，请等待执行完成")
+
     # 检测计时线程中止函数
     def stopYoloThread(self):
         if self.trackingThread is None:
@@ -687,6 +698,7 @@ class trackUi(QMainWindow):
             else:
                 print("进程已自然结束")
                 self.trackingThread = None
+
     # 实时画面展示函数
     def showVid(self, img):
         img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
@@ -700,30 +712,36 @@ class trackUi(QMainWindow):
         scene = QGraphicsScene()  # 创建场景
         scene.addItem(item)
         self.vidShow.setScene(scene)  # 将场景添加至视图
+
     # 人群计数与人正面计数展示函数
     def showCount(self, cps):
         self.personCountLabel.setText(str(cps[0].item()))
         self.dir_faceCountLabel.setText(str(cps[1].item()))
+
     # 重置线程库
     def resetThreadSta(self, ts):
         if ts:
             self.trackingThread = None
+
     # 识别日志展示函数
     def showLog(self, msg):
         self.textBox.append(msg + "<br>")
         self.textBox.repaint()
+
     # “保存视频”候选框
     def saveVidCheckBox(self):
         if self.saveVid.isChecked():
             self.isSave = True
         else:
             self.isSave = False
+
     # “区域检测”候选框
     def zoneCheckBox(self):
         if self.zoneChos.isChecked():
             self.zone = True
         else:
             self.zone = False
+
     # 计时展示表格初始化函数
     def initTableShow(self):
         # 创建一个 0行3列 的标准模型
@@ -739,12 +757,14 @@ class trackUi(QMainWindow):
 
         # self.tableView.setSelectionBehavior(QAbstractItemView.SelectRows)  # 设置只能选中整行
         # self.tableView.setSelectionMode(QAbstractItemView.ExtendedSelection)  # 设置只能选中多行
+
     # 计时展示表格清理函数
     def tableClearn(self):
         # 会全部清空，包括那个标准表头
         self.tableModel.clear()
         # 所以重新设置标准表头 自己将一下代码注释 尝试
         self.tableModel.setHorizontalHeaderLabels(['正脸ID', '时间'])
+
     # 计时展示表格刷新函数
     def tableRe(self, dic):
         self.tableClearn()
@@ -752,6 +772,7 @@ class trackUi(QMainWindow):
             C1 = QStandardItem('%s' % str(item[0]))
             C2 = QStandardItem('%s' % str(item[1]))
             self.tableModel.appendRow([C1, C2])
+
     # 获取并判断视频倍速是否合法
     def getVidStride(self):
         vs = self.vidStrider.text()
@@ -766,12 +787,14 @@ class trackUi(QMainWindow):
     def getPos(self, ls):
         self.zoneInfo = ls
 
+
 # 区域划定对话框类
 class zoneChosShowDialog(QDialog):
     posC = pyqtSignal(list)
     filePath = None
     posList = [(0, 0), (0, 0), (0, 0), (0, 0)]
     posCount = 0
+
     # 初始化函数
     def __init__(self, ffp):
         QWidget.__init__(self)
@@ -797,6 +820,7 @@ class zoneChosShowDialog(QDialog):
         self.resim1.installEventFilter(self)
         print(self.filePath)
         self.resimac()
+
     # 重写窗口关闭事件
     def closeEvent(self, a0: QCloseEvent) -> None:
         """
@@ -836,6 +860,7 @@ class zoneChosShowDialog(QDialog):
                 event.button() == Qt.LeftButton):
             self.getClickedPosition(event.pos())
         return super().eventFilter(source, event)
+
     # 获取点击位置坐标
     def getClickedPosition(self, pos):
         # consider the widget contents margins

@@ -10,3 +10,5 @@ __pycache__/
 *.onnx
 *.engine
 /runs/track/
+/yolov5/vedio_data
+/yolov5/runs
